@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from agent import (
     ask,
     ask_stream_async,
+    get_cached_ask,
     get_stats,
     get_stream_task,
     resume_hitl,
@@ -172,8 +173,33 @@ def _run_chat(
     store = get_conversation_store()
     new_request_id()
     inc("requests_total")
-    history = _load_history_from_store(conversation_id)
+    is_first_turn = len(store.list_messages(conversation_id)) == 0
 
+    cached = get_cached_ask(
+        message,
+        user_roles=[user.role, "public"],
+        conversation_id=conversation_id,
+        use_cache=use_cache,
+    )
+    if cached is not None:
+        store.append_message(conversation_id, "user", message)
+        assistant_meta = {
+            k: cached.get(k)
+            for k in ("sources", "latency_ms", "grade", "request_id", "hitl_pending", "cached")
+            if cached.get(k) is not None
+        }
+        store.append_message(conversation_id, "assistant", cached.get("answer", ""), metadata=assistant_meta)
+        if is_first_turn:
+            title = message.strip().replace("\n", " ")[:80]
+            store.touch_conversation(conversation_id, title=title or "New chat")
+        if cached.get("cached"):
+            inc("cache_hits")
+        cached["role"] = user.role
+        cached["conversation_id"] = conversation_id
+        cached["thread_id"] = conversation_id
+        return cached
+
+    history = _load_history_from_store(conversation_id)
     result = ask(
         message,
         history,
@@ -193,7 +219,7 @@ def _run_chat(
     store.append_message(conversation_id, "assistant", result.get("answer", ""), metadata=assistant_meta)
 
     # 首条用户消息用作会话标题
-    if len(history) == 0:
+    if is_first_turn:
         title = message.strip().replace("\n", " ")[:80]
         store.touch_conversation(conversation_id, title=title or "New chat")
 
@@ -295,11 +321,11 @@ async def conversation_chat_stream(
     store = get_conversation_store()
     rid = new_request_id()
     inc("requests_total")
-    history = _load_history_from_store(conversation_id)
 
     after_offset = req.last_event_id if req.last_event_id is not None else parse_last_event_id(last_event_id_header)
     resume_stream_id = req.stream_id
     is_resume = bool(resume_stream_id and settings.stream_resume_enabled)
+    is_first_turn = False
 
     if is_resume:
         meta = get_stream_status(resume_stream_id) or {}
@@ -307,6 +333,7 @@ async def conversation_chat_stream(
             raise HTTPException(status_code=400, detail="stream_id does not belong to this conversation")
         stream_id = resume_stream_id
     else:
+        is_first_turn = len(store.list_messages(conversation_id)) == 0
         store.append_message(conversation_id, "user", req.message)
         stream_id = rid
         if settings.stream_resume_enabled:
@@ -314,7 +341,7 @@ async def conversation_chat_stream(
                 stream_id=stream_id,
                 conversation_id=conversation_id,
                 question=req.message,
-                history=history,
+                history_loader=lambda: _load_history_from_store(conversation_id),
                 user_roles=[user.role, "public"],
                 hitl_approved=req.hitl_approved,
                 use_cache=req.use_cache,
@@ -363,7 +390,7 @@ async def conversation_chat_stream(
                             conversation_id,
                             meta,
                             full_answer=full_answer,
-                            history_len=len(history) if not is_resume else 1,
+                            history_len=is_first_turn if not is_resume else 1,
                             user_message=req.message,
                         )
                         persisted = True
@@ -374,7 +401,7 @@ async def conversation_chat_stream(
             offset = after_offset
             async for token in ask_stream_async(
                 req.message,
-                history,
+                history_loader=lambda: _load_history_from_store(conversation_id),
                 user_roles=[user.role, "public"],
                 thread_id=conversation_id,
                 conversation_id=conversation_id,
@@ -400,7 +427,7 @@ async def conversation_chat_stream(
                 conversation_id,
                 meta,
                 full_answer=full_answer,
-                history_len=len(history),
+                history_len=is_first_turn if not is_resume else 1,
                 user_message=req.message,
             )
             offset += 1

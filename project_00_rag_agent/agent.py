@@ -8,7 +8,7 @@ agent.py — project_00_rag_agent 对外公共 API
 【设计原因】
 1. 与 graph/ 分层：图构建与节点逻辑在 graph/ 包，本模块只做「组装 + 缓存 + 返回格式」
 2. ask() 使用 LangGraph invoke；ask_stream() 使用 astream（updates + custom token）
-3. ask_stream() 与 ask() 共用压缩、缓存与全图能力（含 grade 重试、HITL）
+3. ask_stream() 与 ask() 共用 Redis 缓存与全图能力（含 grade 重试、HITL）；先 cache_get，未命中再压缩历史
 4. Redis 缓存键按 question + roles 去重，HITL 中断或出错时不写缓存，避免脏数据
 
 【与 project_01 差异】
@@ -22,7 +22,7 @@ import asyncio
 import hashlib
 import json
 import time
-from typing import AsyncGenerator, Generator, List, Optional
+from typing import AsyncGenerator, Callable, Generator, List, Optional
 
 from langchain_core.messages import BaseMessage
 from loguru import logger
@@ -63,20 +63,60 @@ def _base_state(
     }
 
 
+def _history_signature(chat_history: List[BaseMessage]) -> str:
+    """最近 6 条消息的摘要，用于无 conversation_id 时的缓存键（无需先 compress）。"""
+    sig = "|".join(f"{type(m).__name__}:{getattr(m, 'content', '')}" for m in chat_history[-6:])
+    return hashlib.sha256(sig.encode()).hexdigest()[:16]
+
+
 def _cache_key_for_ask(
     question: str,
     user_roles: Optional[List[str]],
-    chat_history: List[BaseMessage],
-    conversation_id: Optional[str],
+    chat_history: Optional[List[BaseMessage]] = None,
+    conversation_id: Optional[str] = None,
 ) -> str:
     """多轮会话下缓存键需含会话或历史摘要，避免不同上下文误命中。"""
     payload: dict = {"q": question, "roles": user_roles}
     if conversation_id:
         payload["conv"] = conversation_id
     elif chat_history:
-        sig = "|".join(f"{type(m).__name__}:{getattr(m, 'content', '')}" for m in chat_history[-6:])
-        payload["hist"] = hashlib.sha256(sig.encode()).hexdigest()[:16]
+        payload["hist"] = _history_signature(chat_history)
     return cache_key("ask", payload)
+
+
+def get_cached_ask(
+    question: str,
+    *,
+    user_roles: Optional[List[str]] = None,
+    conversation_id: Optional[str] = None,
+    chat_history: Optional[List[BaseMessage]] = None,
+    use_cache: bool = True,
+) -> Optional[dict]:
+    """
+    仅查 Redis 答案缓存，不压缩历史、不跑 LangGraph。
+
+    有 conversation_id 时无需 chat_history；供 api 层在加载 PG 历史之前短路命中路径。
+    """
+    if not use_cache or not settings.cache_enabled:
+        return None
+    ck = _cache_key_for_ask(question, user_roles, chat_history, conversation_id)
+    cached = cache_get(ck)
+    if not cached:
+        return None
+    cached = dict(cached)
+    cached["cached"] = True
+    return cached
+
+
+def _resolve_history(
+    history: Optional[List[BaseMessage]],
+    history_loader: Optional[Callable[[], List[BaseMessage]]],
+) -> List[BaseMessage]:
+    if history is not None:
+        return history
+    if history_loader is not None:
+        return history_loader()
+    return []
 
 
 def _result_from_state(
@@ -178,17 +218,21 @@ def ask(
     """
     同步问答：跑完整个 LangGraph（含 guard、可能的重试循环与 HITL），返回结构化结果。
 
-    流程：压缩历史 → 查 Redis 缓存 → invoke 图 → 组装 answer/sources 等字段；
+    流程：查 Redis 缓存 →（未命中）压缩历史 → invoke 图 → 组装 answer/sources 等字段；
     HITL 待审批或出错时不写入缓存。
     """
-    history = compress_chat_history(chat_history or [])
-    ck = _cache_key_for_ask(question, user_roles, history, conversation_id)
-    if use_cache and settings.cache_enabled:
-        cached = cache_get(ck)
-        if cached:
-            cached["cached"] = True
-            return cached
+    ck = _cache_key_for_ask(question, user_roles, chat_history, conversation_id)
+    cached = get_cached_ask(
+        question,
+        user_roles=user_roles,
+        conversation_id=conversation_id,
+        chat_history=chat_history,
+        use_cache=use_cache,
+    )
+    if cached:
+        return cached
 
+    history = compress_chat_history(chat_history or [])
     state, effective_thread = _invoke_rag_graph(
         question,
         history,
@@ -320,7 +364,8 @@ async def _produce_stream_to_wal(
     *,
     stream_id: str,
     question: str,
-    history: List[BaseMessage],
+    history: Optional[List[BaseMessage]],
+    history_loader: Optional[Callable[[], List[BaseMessage]]],
     user_roles: Optional[List[str]],
     thread_id: Optional[str],
     conversation_id: Optional[str],
@@ -338,6 +383,7 @@ async def _produce_stream_to_wal(
             _raw_token_stream(
                 question,
                 history,
+                history_loader=history_loader,
                 user_roles=user_roles,
                 thread_id=thread_id,
                 conversation_id=conversation_id,
@@ -365,8 +411,9 @@ async def _produce_stream_to_wal(
 
 async def _raw_token_stream(
     question: str,
-    history: List[BaseMessage],
+    history: Optional[List[BaseMessage]] = None,
     *,
+    history_loader: Optional[Callable[[], List[BaseMessage]]] = None,
     user_roles: Optional[List[str]],
     thread_id: Optional[str],
     conversation_id: Optional[str],
@@ -375,23 +422,27 @@ async def _raw_token_stream(
     cancel: Optional[CancelToken],
 ) -> AsyncGenerator[str, None]:
     """内部 token 源（含 cache 命中路径），供 WAL 生产者与 ask_stream_async 共用。"""
-    history = compress_chat_history(history or [])
     ck = _cache_key_for_ask(question, user_roles, history, conversation_id)
     t0 = time.perf_counter()
 
-    if use_cache and settings.cache_enabled:
-        cached = cache_get(ck)
-        if cached:
-            cached = dict(cached)
-            cached["cached"] = True
-            cached.setdefault("latency_ms", 0)
-            for chunk in _iter_answer_chunks(cached.get("answer", ""), settings.stream_flush_chars):
-                if cancel and cancel.is_cancelled:
-                    return
-                yield chunk
-            yield f"\n\n__META__{json.dumps(_meta_payload(cached), ensure_ascii=False)}"
-            return
+    cached = get_cached_ask(
+        question,
+        user_roles=user_roles,
+        conversation_id=conversation_id,
+        chat_history=history,
+        use_cache=use_cache,
+    )
+    if cached:
+        cached.setdefault("latency_ms", 0)
+        for chunk in _iter_answer_chunks(cached.get("answer", ""), settings.stream_flush_chars):
+            if cancel and cancel.is_cancelled:
+                return
+            yield chunk
+        yield f"\n\n__META__{json.dumps(_meta_payload(cached), ensure_ascii=False)}"
+        return
 
+    raw_history = _resolve_history(history, history_loader)
+    history = compress_chat_history(raw_history)
     sink: dict = {}
     async for token in _astream_rag_graph(
         question,
@@ -442,7 +493,8 @@ async def start_wal_stream_producer(
     stream_id: str,
     conversation_id: str,
     question: str,
-    history: List[BaseMessage],
+    history: Optional[List[BaseMessage]] = None,
+    history_loader: Optional[Callable[[], List[BaseMessage]]] = None,
     user_roles: Optional[List[str]],
     hitl_approved: bool,
     use_cache: bool,
@@ -464,6 +516,7 @@ async def start_wal_stream_producer(
             stream_id=stream_id,
             question=question,
             history=history,
+            history_loader=history_loader,
             user_roles=user_roles,
             thread_id=conversation_id,
             conversation_id=conversation_id,
@@ -480,6 +533,7 @@ async def ask_stream_async(
     question: str,
     chat_history: Optional[List[BaseMessage]] = None,
     *,
+    history_loader: Optional[Callable[[], List[BaseMessage]]] = None,
     user_roles: Optional[List[str]] = None,
     thread_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
@@ -489,7 +543,7 @@ async def ask_stream_async(
     cancel: Optional[CancelToken] = None,
 ) -> AsyncGenerator[str, None]:
     """
-    流式问答：与 ask() 共用压缩、Redis 缓存；未命中时 graph.astream 跑全图。
+    流式问答：先查 Redis；未命中再加载/压缩历史并 graph.astream 跑全图。
 
     默认按 settings.stream_flush_chars / stream_flush_interval_ms 节流 batch。
     """
@@ -497,7 +551,8 @@ async def ask_stream_async(
     async for batch in batched_tokens(
         _raw_token_stream(
             question,
-            chat_history or [],
+            chat_history,
+            history_loader=history_loader,
             user_roles=user_roles,
             thread_id=thread_id,
             conversation_id=conversation_id,
@@ -515,6 +570,7 @@ def ask_stream(
     question: str,
     chat_history: Optional[List[BaseMessage]] = None,
     *,
+    history_loader: Optional[Callable[[], List[BaseMessage]]] = None,
     user_roles: Optional[List[str]] = None,
     thread_id: Optional[str] = None,
     conversation_id: Optional[str] = None,
@@ -529,6 +585,7 @@ def ask_stream(
         async for item in ask_stream_async(
             question,
             chat_history,
+            history_loader=history_loader,
             user_roles=user_roles,
             thread_id=thread_id,
             conversation_id=conversation_id,

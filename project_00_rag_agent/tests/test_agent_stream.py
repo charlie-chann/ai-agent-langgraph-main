@@ -21,9 +21,10 @@ def _collect_stream(gen):
 
 
 class TestAskStreamAlignment:
+    @patch("agent.compress_chat_history")
     @patch("agent.cache_get")
     @patch("agent._astream_rag_graph")
-    def test_cache_hit_skips_astream(self, mock_astream, mock_cache_get):
+    def test_cache_hit_skips_astream_and_compress(self, mock_astream, mock_cache_get, mock_compress):
         from agent import ask_stream
 
         mock_cache_get.return_value = {
@@ -41,11 +42,15 @@ class TestAskStreamAlignment:
         assert meta["cached"] is True
         assert meta["sources"] == ["a.txt"]
         mock_astream.assert_not_called()
+        mock_compress.assert_not_called()
 
+    @patch("agent.compress_chat_history")
     @patch("agent.cache_set")
     @patch("agent.cache_get", return_value=None)
-    def test_miss_uses_astream_and_caches(self, _mock_cache_get, mock_cache_set):
+    def test_miss_uses_astream_and_caches(self, _mock_cache_get, mock_cache_set, mock_compress):
         from agent import ask_stream
+
+        mock_compress.return_value = []
 
         async def fake_astream(*_args, sink, **_kwargs):
             sink["state"] = {
@@ -74,6 +79,7 @@ class TestAskStreamAlignment:
         assert meta["answer"] == "fresh answer"
         assert meta["cached"] is False
         mock_cache_set.assert_called_once()
+        mock_compress.assert_called_once()
 
     @patch("agent.cache_set")
     @patch("agent.cache_get", return_value=None)
@@ -102,25 +108,54 @@ class TestAskStreamAlignment:
 
 
 @pytest.mark.asyncio
-async def test_ask_stream_async_direct():
-    from agent import ask_stream_async
+class TestAskStreamAsync:
+    @patch("agent.compress_chat_history")
+    @patch("agent.cache_get", return_value=None)
+    async def test_ask_stream_async_direct(self, mock_cache_get, mock_compress):
+        from agent import ask_stream_async
 
-    async def fake_astream(*_args, sink, **_kwargs):
-        sink["state"] = {"answer": "async", "grade": "yes", "request_id": "r1"}
-        sink["effective_thread"] = "t1"
-        yield "a"
-        yield "sync"
+        mock_compress.return_value = []
 
-    with patch("agent.cache_get", return_value=None), patch(
-        "agent._astream_rag_graph", side_effect=fake_astream
-    ):
+        async def fake_astream(*_args, sink, **_kwargs):
+            sink["state"] = {"answer": "async", "grade": "yes", "request_id": "r1"}
+            sink["effective_thread"] = "t1"
+            yield "a"
+            yield "sync"
+
+        with patch("agent._astream_rag_graph", side_effect=fake_astream):
+            tokens = []
+            meta = None
+            async for token in ask_stream_async("q", [], conversation_id="c1"):
+                if token.startswith("\n\n__META__"):
+                    meta = json.loads(token.replace("\n\n__META__", ""))
+                else:
+                    tokens.append(token)
+
+        assert "".join(tokens) == "async"
+        assert meta["answer"] == "async"
+        mock_compress.assert_called_once()
+
+    @patch("agent.compress_chat_history")
+    @patch("agent.cache_get")
+    async def test_cache_hit_skips_history_loader(self, mock_cache_get, mock_compress):
+        from agent import ask_stream_async
+
+        mock_cache_get.return_value = {"answer": "hit", "grade": "yes", "request_id": "r1"}
+        loader_called = False
+
+        def _loader():
+            nonlocal loader_called
+            loader_called = True
+            return []
+
         tokens = []
-        meta = None
-        async for token in ask_stream_async("q", []):
-            if token.startswith("\n\n__META__"):
-                meta = json.loads(token.replace("\n\n__META__", ""))
-            else:
-                tokens.append(token)
+        async for token in ask_stream_async(
+            "q",
+            history_loader=_loader,
+            conversation_id="conv-loader",
+        ):
+            tokens.append(token)
 
-    assert "".join(tokens) == "async"
-    assert meta["answer"] == "async"
+        assert "hit" in "".join(tokens)
+        assert not loader_called
+        mock_compress.assert_not_called()
