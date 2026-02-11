@@ -9,11 +9,8 @@ flowchart TD
 
     EVAL --> EVAL_DONE(["③调度层 eval · 无②网关层"])
 
-    ST --> MODE{API?}
-    MODE -->|是| L1_API["①客户端 → ②网关层<br/>登录·05 建会话·22<br/>chat · 详图 07"]
-    MODE -->|否| L1_LOC["①客户端 → ③调度层<br/>ask_stream · 详图 08"]
+    ST --> L1_API["①客户端 → ②网关层<br/>登录·05 建会话·22<br/>chat · 详图 07"]
     L1_API --> GW
-    L1_LOC --> SCH0
     CLI --> GW
 
     subgraph L2["② 网关层 · 详图 04–06/22"]
@@ -47,11 +44,8 @@ flowchart TD
     EXEC --> PACK["③调度层 打包 · cache_set? · 06"]
     CACHED --> PACK
 
-    PACK --> SAVE{落库}
-    SAVE -->|API| DB["②网关层 · 详图 22 · ⑥PG"]
-    SAVE -->|Local| SESS["①客户端 session"]
+    PACK --> DB["②网关层 落库 · 详图 22 · ⑥PG"]
     DB --> OUT
-    SESS --> OUT
     ING --> OUT
     OPS --> OUT
     HITL_BOX --> OUT

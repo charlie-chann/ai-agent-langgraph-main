@@ -40,8 +40,7 @@ flowchart TB
         PG[(Postgres<br/>conversations + checkpoint)]
     end
 
-  ST -->|API 模式 HTTP<br/>conversation_id + message| API
-  ST -.->|Local 模式 进程内直连| AGENT
+  ST -->|HTTP conversation_id + message| API
   CLI --> API
   API --> AUTH --> RL --> RID
   API --> CONV

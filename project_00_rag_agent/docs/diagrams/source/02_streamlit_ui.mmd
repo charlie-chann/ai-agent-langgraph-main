@@ -1,27 +1,19 @@
 flowchart TD
-    START(["①客户端 打开 UI · 详图 02"]) --> MODE{API backend?}
-
-    MODE -->|Local| ROLE["①客户端 选角色 ACL"]
-    MODE -->|API| LOGIN["①客户端 登录表单"]
+    START(["①客户端 打开 UI · 详图 02"]) --> LOGIN["①客户端 登录表单"]
     LOGIN --> TOKEN["②网关层 POST /auth/token<br/>详图 04/05"]
-    TOKEN --> ROLE2["①客户端 session token+role"]
+    TOKEN --> ROLE["①客户端 session token+role"]
 
     ROLE --> SETTINGS["①客户端 Runtime Settings<br/>⑥基础设施 Provider · 详图 18"]
-    ROLE2 --> SETTINGS
 
     SETTINGS --> INGEST{上传文档?}
-    INGEST -->|Local| ING_LOCAL["⑤工具层 ingest 直连<br/>详图 15/17 · ⑥Chroma/BM25/KG"]
-    INGEST -->|API| ING_API["②网关层 POST /ingest"]
+    INGEST -->|是| ING_API["②网关层 POST /ingest"]
     INGEST -->|否| CHAT
 
     ING_API --> GW_ING["②网关层 限流/JWT · 详图 04/06/05"]
     GW_ING --> ING_RUN["⑤工具层 ingest_files<br/>详图 15/17 · ⑥Chroma/BM25/KG"]
-    ING_LOCAL --> CHAT
     ING_RUN --> CHAT
 
-    CHAT[用户提问] --> CHATMODE{API?}
-
-    CHATMODE -->|是| ENSURE{有 conversation_id?}
+    CHAT[用户提问] --> ENSURE{有 conversation_id?}
     ENSURE -->|否| CREATE["②网关层 POST /conversations<br/>详图 22 · ⑥PG"]
     CREATE --> CID["①客户端 存 conversation_id"]
     ENSURE -->|是| CID
@@ -30,15 +22,10 @@ flowchart TD
     FLOW07 --> JSON["①客户端 展示 JSON"]
     JSON --> HITL{hitl_pending?}
 
-    CHATMODE -->|否| STREAM_LOCAL["③调度层 ask_stream 直连<br/>详图 08 · ①session 历史"]
-    STREAM_LOCAL --> FLOW08["③调度层+④执行层 · 详图 08<br/>↳ ⑤14/16/17 · ⑥18/20"]
-    FLOW08 --> SHOW
-
     HITL -->|是| WARN["①客户端 HITL 警告"]
     HITL -->|否| SHOW["①客户端 展示 metadata"]
 
     WARN --> ADMIN{admin Approve?}
-    ADMIN -->|是 API| RESUME["②网关层 POST /hitl/resume · 详图 09"]
-    ADMIN -->|是 Local| RESUME_L["③调度层 resume_hitl · 详图 09"]
+    ADMIN -->|是| RESUME["②网关层 POST /hitl/resume · 详图 09"]
+    ADMIN -->|否| SHOW
     RESUME --> SHOW
-    RESUME_L --> SHOW

@@ -4,8 +4,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| `01_layers_overview.png` | 六层架构总览（含 API / Local 双路径） |
-| `02_streamlit_ui.png` | Streamlit UI 全栈路径（经网关或直连 agent） |
+| `01_layers_overview.png` | 六层架构总览 |
+| `02_streamlit_ui.png` | Streamlit UI 全栈路径（经网关） |
 | `03_eval_harness.png` | Eval Harness |
 | `04_http_gateway.png` | HTTP 网关 |
 | `05_jwt_rbac.png` | JWT + RBAC |

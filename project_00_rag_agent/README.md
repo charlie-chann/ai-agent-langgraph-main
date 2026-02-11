@@ -12,10 +12,10 @@ Enterprise-grade RAG with LangGraph, JWT/RBAC, Redis cache, Knowledge Graph, HIT
 | **HITL** | `interrupt_before` + Postgres/Memory checkpointer |
 | **Auth** | JWT + RBAC |
 | **Cache** | Redis + in-memory fallback |
-| **UI** | Streamlit (local or API mode) |
+| **UI** | Streamlit（HTTP 客户端，经 FastAPI） |
 | **Eval** | Integrated with `eval/harness` (`--project 00`) |
 
-## Quick Start (Local)
+## Quick Start
 
 ```bash
 cd project_00_rag_agent
@@ -33,7 +33,7 @@ ollama pull nomic-embed-text
 # 4. 一键启动（入库样例 + API）
 bash scripts/start_local.sh
 
-# 5. 另开终端启动 UI
+# 5. 另开终端启动 UI（需先登录，默认 admin/admin123）
 streamlit run app.py --server.port 8501
 ```
 
@@ -55,7 +55,7 @@ docker compose exec ollama ollama pull qwen2.5:1.5b
 docker compose exec ollama ollama pull nomic-embed-text
 
 # API:  http://localhost:8000/docs
-# UI:   http://localhost:8501  (toggle "Use API backend" + login admin/admin123)
+# UI:   http://localhost:8501  (login admin/admin123)
 ```
 
 ## Auth

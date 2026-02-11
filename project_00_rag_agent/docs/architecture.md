@@ -27,11 +27,8 @@ flowchart TD
 
     EVAL --> EVAL_DONE(["③调度层 eval · 无②网关层"])
 
-    ST --> MODE{API?}
-    MODE -->|是| L1_API["①客户端 → ②网关层<br/>登录·05 建会话·22<br/>chat · 详图 07"]
-    MODE -->|否| L1_LOC["①客户端 → ③调度层<br/>ask_stream · 详图 08"]
+    ST --> L1_API["①客户端 → ②网关层<br/>登录·05 建会话·22<br/>chat · 详图 07"]
     L1_API --> GW
-    L1_LOC --> SCH0
     CLI --> GW
 
     subgraph L2["② 网关层 · 详图 04–06/22"]
@@ -65,11 +62,8 @@ flowchart TD
     EXEC --> PACK["③调度层 打包 · cache_set? · 06"]
     CACHED --> PACK
 
-    PACK --> SAVE{落库}
-    SAVE -->|API| DB["②网关层 · 详图 22 · ⑥PG"]
-    SAVE -->|Local| SESS["①客户端 session"]
+    PACK --> DB["②网关层 落库 · 详图 22 · ⑥PG"]
     DB --> OUT
-    SESS --> OUT
     ING --> OUT
     OPS --> OUT
     HITL_BOX --> OUT
@@ -106,7 +100,7 @@ flowchart TD
 project_00_rag_agent/
 ├── agent.py                 # 对外入口：ask / ask_stream / resume_hitl / startup
 ├── api.py                   # FastAPI HTTP 层
-├── app.py                   # Streamlit UI（Local / API 双模式）
+├── app.py                   # Streamlit UI（HTTP 客户端，仅经 api.py）
 ├── config.py                # pydantic-settings 全量配置
 │
 ├── core/                    # 横切能力
@@ -203,8 +197,7 @@ flowchart TB
         PG[(Postgres<br/>conversations + checkpoint)]
     end
 
-  ST -->|API 模式 HTTP<br/>conversation_id + message| API
-  ST -.->|Local 模式 进程内直连| AGENT
+  ST -->|HTTP conversation_id + message| API
   CLI --> API
   API --> AUTH --> RL --> RID
   API --> CONV
@@ -223,7 +216,8 @@ flowchart TB
   RET --> CHROMA & BM25
   KG --> KGSTORE
   CACHE --> REDIS
-  CP --> PG```
+  CP --> PG
+```
 
 </details>
 
@@ -232,31 +226,26 @@ flowchart TB
 | 层 | 职责（一句话） | 主要代码 | 本文章节 | 核心流程图 |
 |----|----------------|----------|----------|------------|
 | **全栈** | 端到端主路径 + ingest + HITL 汇总 | 全文 | **〇** | **`00` 全项目总览** |
-| **① 客户端** | 收集输入、展示结果；API 模式发 HTTP，Local 模式直连 agent | `app.py`, eval harness | **三** | `02` UI 全栈路径、`03` Eval |
+| **① 客户端** | 收集输入、展示结果；经 HTTP 调用网关 | `app.py`, eval harness | **三** | `02` UI 全栈路径、`03` Eval |
 | **② 网关层** | 鉴权、限流、答案缓存、request_id；**会话 history 从 Postgres 加载** | `api.py`, `middleware/*`, `storage/conversations.py` | **四** | `04`–`06`、`22` 会话存储 |
 | **③ 调度层** | 压缩历史、查答案缓存、组装 state、调用 LangGraph | `agent.py` | **五** | **`07`–`10`** ask / stream / HITL / startup |
 | **④ 执行层** | guard/HITL/改写/检索/生成/评分的有状态工作流 | `graph/*` | **六** | **`11`–`13`** 主图 / State / Checkpointer |
 | **⑤ 工具层** | 入库、混合检索、KG、冲突检测 | `tools/*` | **七** | **`14`–`17`** 检索 / ingest / 冲突 / KG |
 | **⑥ 基础设施** | 模型调用、熔断、超时、持久化存储 | `providers/`, `core/`, 磁盘/Redis/PG | **八** | **`18`–`21`** 熔断 / 超时 / 压缩 / Docker |
 
-**两条部署路径（务必区分）：**
+**客户端路径**：Streamlit / curl / SDK 均经 **② 网关层** → ③ → ④ → ⑤ → ⑥ → 响应回 UI。
 
-| 路径 | 客户端 → 后端 | 何时使用 |
-|------|----------------|----------|
-| **生产 / API 模式** | Streamlit → **② 网关层** → ③ → ④ → ⑤ → ⑥ → JSON 回 UI → 展示 | `Use API backend` 开启 |
-| **本地 / Local 模式** | Streamlit → **③ 调度层 agent 直连**（跳过 ②）→ ④ → ⑤ → ⑥ → 流式/元数据回 UI | 默认本地开发 |
-
-`02_streamlit_ui` 图同时画出上述两条路径；**不是** UI 自己生成答案，中间必经 ③～⑥（API 模式还多一层 ②）。
+`02_streamlit_ui` 图画出 Streamlit 经网关的完整调用链；**不是** UI 自己生成答案，中间必经 ②～⑥。
 
 ---
 
 ## 三、层 1：客户端层
 
-**本层职责**：人机交互、会话状态（`conversation_id` / `token` / UI 展示用 `messages`）、把用户操作转为 HTTP 或进程内调用；**不负责**检索与生成。API 模式下 **chat_history 由服务端 PostgreSQL 存储**，客户端只传 `conversation_id` + `message`。
+**本层职责**：人机交互、会话状态（`conversation_id` / `token` / UI 展示用 `messages`）、把用户操作转为 HTTP 调用；**不负责**检索与生成。**chat_history 由服务端 PostgreSQL 存储**，客户端只传 `conversation_id` + `message`。
 
 ### 3.1 Streamlit UI 全栈路径（`app.py`）
 
-下图在 **① 客户端视角** 画出完整调用链：API 模式经 **② 网关** 再进入 **③～⑥**；Local 模式跳过网关直连 agent。终点 `SHOW` 是网关/agent 返回 JSON 或流式 token **之后** 的 UI 渲染。
+下图在 **① 客户端视角** 画出经 **② 网关** 进入 **③～⑥** 的完整调用链。终点 `SHOW` 是网关返回 JSON **之后** 的 UI 渲染。
 
 ![Streamlit UI 流程](./diagrams/02_streamlit_ui.png)
 
@@ -265,29 +254,21 @@ flowchart TB
 
 ```mermaid
 flowchart TD
-    START(["①客户端 打开 UI · 详图 02"]) --> MODE{API backend?}
-
-    MODE -->|Local| ROLE["①客户端 选角色 ACL"]
-    MODE -->|API| LOGIN["①客户端 登录表单"]
+    START(["①客户端 打开 UI · 详图 02"]) --> LOGIN["①客户端 登录表单"]
     LOGIN --> TOKEN["②网关层 POST /auth/token<br/>详图 04/05"]
-    TOKEN --> ROLE2["①客户端 session token+role"]
+    TOKEN --> ROLE["①客户端 session token+role"]
 
     ROLE --> SETTINGS["①客户端 Runtime Settings<br/>⑥基础设施 Provider · 详图 18"]
-    ROLE2 --> SETTINGS
 
     SETTINGS --> INGEST{上传文档?}
-    INGEST -->|Local| ING_LOCAL["⑤工具层 ingest 直连<br/>详图 15/17 · ⑥Chroma/BM25/KG"]
-    INGEST -->|API| ING_API["②网关层 POST /ingest"]
+    INGEST -->|是| ING_API["②网关层 POST /ingest"]
     INGEST -->|否| CHAT
 
     ING_API --> GW_ING["②网关层 限流/JWT · 详图 04/06/05"]
     GW_ING --> ING_RUN["⑤工具层 ingest_files<br/>详图 15/17 · ⑥Chroma/BM25/KG"]
-    ING_LOCAL --> CHAT
     ING_RUN --> CHAT
 
-    CHAT[用户提问] --> CHATMODE{API?}
-
-    CHATMODE -->|是| ENSURE{有 conversation_id?}
+    CHAT[用户提问] --> ENSURE{有 conversation_id?}
     ENSURE -->|否| CREATE["②网关层 POST /conversations<br/>详图 22 · ⑥PG"]
     CREATE --> CID["①客户端 存 conversation_id"]
     ENSURE -->|是| CID
@@ -296,18 +277,14 @@ flowchart TD
     FLOW07 --> JSON["①客户端 展示 JSON"]
     JSON --> HITL{hitl_pending?}
 
-    CHATMODE -->|否| STREAM_LOCAL["③调度层 ask_stream 直连<br/>详图 08 · ①session 历史"]
-    STREAM_LOCAL --> FLOW08["③调度层+④执行层 · 详图 08<br/>↳ ⑤14/16/17 · ⑥18/20"]
-    FLOW08 --> SHOW
-
     HITL -->|是| WARN["①客户端 HITL 警告"]
     HITL -->|否| SHOW["①客户端 展示 metadata"]
 
     WARN --> ADMIN{admin Approve?}
-    ADMIN -->|是 API| RESUME["②网关层 POST /hitl/resume · 详图 09"]
-    ADMIN -->|是 Local| RESUME_L["③调度层 resume_hitl · 详图 09"]
+    ADMIN -->|是| RESUME["②网关层 POST /hitl/resume · 详图 09"]
+    ADMIN -->|否| SHOW
     RESUME --> SHOW
-    RESUME_L --> SHOW```
+```
 
 </details>
 
@@ -327,7 +304,8 @@ flowchart LR
     E5 --> E6[trace 归因]
     E6 --> E7{--regression?}
     E7 -->|是| E8[对比 baseline.json]
-    E7 -->|否| E9[写 results/]```
+    E7 -->|否| E9[写 results/]
+```
 
 </details>
 
@@ -382,7 +360,8 @@ flowchart TD
     T3 --> OUT
     T4 --> OUT
     H1 --> OUT
-    H_OPS --> OUT```
+    H_OPS --> OUT
+```
 
 </details>
 
@@ -407,7 +386,8 @@ flowchart TD
     PERM -->|ingest| R2[admin/editor ✓]
     PERM -->|hitl_approve| R3[admin only ✓]
     PERM -->|metrics| R4[admin only ✓]
-    PERM -->|health/stats| R5[admin/editor/viewer ✓]```
+    PERM -->|health/stats| R5[admin/editor/viewer ✓]
+```
 
 </details>
 
@@ -448,7 +428,8 @@ flowchart TD
         H2[客户端只传 conversation_id]
     end
 
-    INGEST_DONE[POST /ingest 成功] --> CLEAR[cache_delete_prefix rag:ask:]```
+    INGEST_DONE[POST /ingest 成功] --> CLEAR[cache_delete_prefix rag:ask:]
+```
 
 </details>
 
@@ -501,7 +482,8 @@ flowchart TD
 
     RETURN -.->|hitl_pending| H09["③调度层 → 详图 09<br/>↳ ④13 · ⑥PG"]
 
-    %% ③调度层=agent.ask()；②网关层=api._run_chat()```
+    %% ③调度层=agent.ask()；②网关层=api._run_chat()
+```
 
 </details>
 
@@ -551,7 +533,8 @@ flowchart TD
 
     RETURN -.->|hitl_pending| H09["③调度层 → 详图 09<br/>↳ ④13 · ⑥PG"]
 
-    %% 与 07 差异：astream、先写 user、yield+SSE（③调度层 + ②网关层）```
+    %% 与 07 差异：astream、先写 user、yield+SSE（③调度层 + ②网关层）
+```
 
 </details>
 
@@ -581,7 +564,8 @@ flowchart TD
     FLOW --> SAVE["②网关层 append assistant<br/>详图 22 · ⑥PG"]
     SAVE --> END2(["②网关层 返回 answer JSON"])
 
-    %% 独立第二次 HTTP```
+    %% 独立第二次 HTTP
+```
 
 </details>
 
@@ -596,7 +580,8 @@ flowchart TD
 flowchart TD
     BOOT(["②网关层 api lifespan"]) --> S1["③调度层 startup<br/>⑤工具层 BM25 重建 · 详图 14<br/>⑥Chroma/BM25"]
     S1 --> S2["④执行层 checkpointer<br/>详图 13 · ⑥PG"]
-    S2 --> READY([服务就绪])```
+    S2 --> READY([服务就绪])
+```
 
 </details>
 
@@ -667,7 +652,8 @@ flowchart TD
     GRADE --> RETRY{should_retry}
 
     RETRY -->|grade=no 且 iter<max| REWRITE
-    RETRY -->|否则| END2([END])```
+    RETRY -->|否则| END2([END])
+```
 
 </details>
 
@@ -716,7 +702,8 @@ flowchart LR
     Q --> GUARD2[guard] --> RW[rewritten_question]
     RW --> D & K & S & C
     D & K & C --> A
-    A --> G --> I```
+    A --> G --> I
+```
 
 </details>
 
@@ -751,7 +738,8 @@ flowchart TD
 
     WAIT --> ADMIN[admin POST /hitl/resume]
     ADMIN --> RESUME[update_state + invoke None]
-    RESUME --> CONTINUE[继续 rewrite→...→END]```
+    RESUME --> CONTINUE[继续 rewrite→...→END]
+```
 
 </details>
 
@@ -792,7 +780,8 @@ flowchart TD
     FB --> KG{KG_ENABLED?}
     KG -->|是| KGQ[get_kg.query → to_context]
     KG -->|否| OUT
-    KGQ --> OUT([docs + kg_context])```
+    KGQ --> OUT([docs + kg_context])
+```
 
 </details>
 
@@ -824,7 +813,8 @@ flowchart TD
         E4 --> E5[save graph.pkl + graph.json]
     end
 
-    EXTRACT --> KG_PIPE --> DONE([返回统计 dict])```
+    EXTRACT --> KG_PIPE --> DONE([返回统计 dict])
+```
 
 </details>
 
@@ -844,7 +834,8 @@ flowchart TD
     DIFF -->|否| SKIP
     DIFF -->|是| PRI[_meta_priority<br/>policy>faq, 新日期优先]
     PRI --> OUT[ConflictItem + resolution_hint]
-    OUT --> FMT[format_conflicts 注入 Prompt]```
+    OUT --> FMT[format_conflicts 注入 Prompt]
+```
 
 </details>
 
@@ -865,7 +856,8 @@ flowchart TD
     TOK --> SUB{中文子串匹配?}
     SUB --> TOP[top_k 三元组]
     TOP --> CTX[to_context 证据链文本]
-    CTX --> PROMPT[注入 rag_prompt kg_context]```
+    CTX --> PROMPT[注入 rag_prompt kg_context]
+```
 
 </details>
 
@@ -893,7 +885,8 @@ flowchart TD
     OLL & OAI -->|失败| FAIL[record_failure]
     FAIL --> TH{failures ≥ 5?}
     TH -->|是| OPEN[熔断 OPEN 60s]
-    TH -->|否| RAISE[抛出异常]```
+    TH -->|否| RAISE[抛出异常]
+```
 
 </details>
 
@@ -908,7 +901,8 @@ flowchart TD
 flowchart LR
     NODE[graph nodes _invoke_chain] --> TW[run_with_timeout ThreadPool]
     TW -->|≤ llm_timeout 30s| OK[返回 LLM 结果]
-    TW -->|超时| E504[RAGTimeoutError → 节点兜底]```
+    TW -->|超时| E504[RAGTimeoutError → 节点兜底]
+```
 
 </details>
 
@@ -928,7 +922,8 @@ flowchart TD
     OVER -->|否| OUT1[压缩后 history]
 
     CHUNKS[context_docs 按 rerank 序] --> BUDGET[trim_context_chunks<br/>RAG_CONTEXT_MAX_TOKENS=3000]
-    BUDGET --> OUT2[拼接 context 字符串]```
+    BUDGET --> OUT2[拼接 context 字符串]
+```
 
 </details>
 
@@ -948,7 +943,8 @@ flowchart TB
     API --> REDIS[redis :6379<br/>答案缓存 + 限流]
     API --> PG["postgres :5432<br/>conversations + messages<br/>LangGraph checkpoint"]
     API --> VOL1[(chroma_db volume<br/>知识库向量)]
-    API --> VOL2[(kg_store volume)]```
+    API --> VOL2[(kg_store volume)]
+```
 
 </details>
 
@@ -1000,7 +996,8 @@ flowchart TD
 
     PG[(PostgreSQL)] --- S1
     PG --- S2
-    SQLITE[(SQLite 降级)] -.->|无 Postgres 时| S1```
+    SQLITE[(SQLite 降级)] -.->|无 Postgres 时| S1
+```
 
 </details>
 
