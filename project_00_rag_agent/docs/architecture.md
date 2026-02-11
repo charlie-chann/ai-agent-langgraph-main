@@ -498,7 +498,13 @@ flowchart TD
 
 ### 5.3 `ask_stream()` 流式问答流程
 
-与图 `07` 同骨架（①～④ + 缓存 + 全图 **详图 11**）。差异：**先写 user**、**`astream` + yield + SSE**；`hitl_pending` 见 **详图 09**（另一次 HTTP）。
+与图 `07` 同骨架（①～④ + 缓存 + 全图 **详图 11**）。流式差异：
+
+1. **先写 user**（`append_message`），再调 `ask_stream_async`
+2. **`_gen()` 与 `ask_stream_async` 同迭代**：调度层每 `yield` 一个 token，网关**立刻**包成 SSE 推前端（不是等调度结束才进 `_gen`）
+3. **SSE 格式**：普通 token → `data: {"token":...}`；`__META__` → `data: {sources, hitl_pending, ...}`；结束 → `data: [DONE]`
+3. **流结束后写 assistant**：`final_answer = meta.answer or full_answer` → `append_message(assistant)`（在 `[DONE]` 之前）
+4. **`hitl_pending`**：在 **④执行层** 判定，经 **`__META__` SSE 事件**带给前端（不是 `[DONE]` 或 `StreamingResponse` 之后才判）；admin 续跑见 **详图 09**（另一次 HTTP）
 
 ![ask_stream() 流式](./diagrams/08_ask_stream.png)
 
@@ -508,34 +514,48 @@ flowchart TD
 ```mermaid
 flowchart TD
     START(["②网关层 conversation_chat_stream<br/>详图 04"]) --> RID["②网关层 new_request_id + metrics"]
-    RID --> LOAD["②网关层 读 history<br/>详图 22 · ⑥PG/SQLite"]
-    LOAD --> UMSG["②网关层 写 user<br/>详图 22 · ⑥PG/SQLite"]
+    RID --> LOAD["②网关层 读 history<br/>详图 22 · ⑥PG"]
+    LOAD --> UMSG["②网关层 append_message(user)<br/>详图 22 · ⑥PG"]
+    UMSG --> RESP["②网关层 return StreamingResponse(_gen)<br/>HTTP 连接打开"]
 
-    UMSG --> A1["③调度层 compress<br/>详图 20"]
+    RESP --> A1["③调度层 compress<br/>详图 20"]
     A1 --> A2{"③调度层 cache_get<br/>详图 06 · ⑥Redis"}
 
-    A2 -->|命中| A2H["③调度层 yield cached + __META__"]
-    A2 -->|未命中| A3["③调度层 astream → ④执行层<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
+    A2 -->|命中| A2H["③调度层 yield 分片 + __META__"]
+    A2 -->|未命中| A3["③调度层 astream → ④执行层<br/>详图 11 · ④ HITL 判定<br/>↳ ⑤14/16/17 · ⑥18/19/20"]
 
-    A3 --> A4["③调度层 yield token + __META__"]
-    A4 --> A5{可写缓存?}
+    A2H --> LOOP
+    A3 --> LOOP
+
+    subgraph GEN["② _gen() · async for token（边收边推前端）"]
+        LOOP((async for))
+        LOOP --> KIND{token 类型?}
+
+        KIND -->|普通 token| TOK["② full_answer += token<br/>yield data:token → 前端"]
+        KIND -->|__META__| META["② meta = JSON<br/>yield data:meta → 前端"]
+
+        TOK --> MORE{还有 token?}
+        META --> MORE
+        MORE -->|是| LOOP
+        MORE -->|否| FINAL
+
+        FINAL["final_answer = meta.answer or full_answer"]
+        FINAL --> ASST["append_message(assistant) · 详图 22<br/>仅写 DB"]
+        ASST --> TIT{首轮?}
+        TIT -->|是| TITLE["touch_conversation"]
+        TIT -->|否| DONE
+        TITLE --> DONE["yield data:DONE → 前端"]
+    end
+
+    A3 -.->|astream 结束后| A5{可写缓存?}
     A5 -->|是| A6["③调度层 cache_set<br/>详图 06 · ⑥Redis"]
-    A5 -->|否| MERGE[result]
-    A6 --> MERGE
+    A5 -->|否| A7["③调度层 yield __META__"]
+    A6 --> A7
+    A7 -.->|进入 _gen 循环| KIND
 
-    A2H --> WRAP
-    MERGE --> WRAP["②网关层 _gen SSE<br/>yield token / __META__"]
+    META -.->|hitl_pending=true| H09["admin POST /hitl/resume · 详图 09"]
 
-    WRAP --> SAVE["②网关层 写 assistant<br/>详图 22 · ⑥PG/SQLite"]
-    SAVE --> TIT{首轮?}
-    TIT -->|是| TITLE["②网关层 touch_conversation"]
-    TIT -->|否| RETURN
-    TITLE --> RETURN(["②网关层 SSE DONE"])
-
-    RETURN -.->|hitl_pending| H09["③调度层 → 详图 09<br/>↳ ④13 · ⑥PG"]
-
-    %% 与 07 差异：astream、先写 user、yield+SSE（③调度层 + ②网关层）
-```
+    %% 与 07 对齐：compress·20 → cache·06 → 执行；虚线=未命中路径 astream 结束后 cache_set→__META__```
 
 </details>
 
