@@ -1,6 +1,6 @@
 # 架构流程图 PNG
 
-本目录包含 `architecture.md` 中全部 **21 张**流程图的 PNG 导出。
+本目录包含 `architecture.md` 中全部 **22 张**流程图的 PNG 导出。
 
 | 文件 | 说明 |
 |------|------|
@@ -25,6 +25,7 @@
 | `19_timeouts.png` | 超时 |
 | `20_compression.png` | 上下文压缩 |
 | `21_docker_topology.png` | Docker |
+| `22_conversations.png` | 会话存储 conversation_id + Postgres |
 
 ## 重新生成
 

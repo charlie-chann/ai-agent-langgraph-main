@@ -18,6 +18,7 @@ agent.py — project_00_rag_agent 对外公共 API
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from typing import Generator, List, Optional
@@ -61,12 +62,29 @@ def _base_state(
     }
 
 
+def _cache_key_for_ask(
+    question: str,
+    user_roles: Optional[List[str]],
+    chat_history: List[BaseMessage],
+    conversation_id: Optional[str],
+) -> str:
+    """多轮会话下缓存键需含会话或历史摘要，避免不同上下文误命中。"""
+    payload: dict = {"q": question, "roles": user_roles}
+    if conversation_id:
+        payload["conv"] = conversation_id
+    elif chat_history:
+        sig = "|".join(f"{type(m).__name__}:{getattr(m, 'content', '')}" for m in chat_history[-6:])
+        payload["hist"] = hashlib.sha256(sig.encode()).hexdigest()[:16]
+    return cache_key("ask", payload)
+
+
 def ask(
     question: str,
     chat_history: Optional[List[BaseMessage]] = None,
     *,
     user_roles: Optional[List[str]] = None,
     thread_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
     hitl_approved: bool = False,
     use_cache: bool = True,
     return_state: bool = False,
@@ -78,15 +96,16 @@ def ask(
     HITL 待审批或出错时不写入缓存。
     """
     history = compress_chat_history(chat_history or [])
-    ck = cache_key("ask", {"q": question, "roles": user_roles})
+    ck = _cache_key_for_ask(question, user_roles, history, conversation_id)
     if use_cache and settings.cache_enabled:
         cached = cache_get(ck)
         if cached:
             cached["cached"] = True
             return cached
 
-    # thread_id 传给 Checkpointer，支持 HITL 中断后 resume
-    config = {"configurable": {"thread_id": thread_id or get_request_id()}}
+    # conversation_id 与 thread_id 对齐，便于 HITL 与聊天记录关联
+    effective_thread = thread_id or conversation_id or get_request_id()
+    config = {"configurable": {"thread_id": effective_thread}}
     state = get_graph().invoke(
         _base_state(question, history, user_roles, thread_id, hitl_approved),
         config=config,
@@ -106,7 +125,8 @@ def ask(
         "conflicts": state.get("conflicts", ""),
         "request_id": state.get("request_id"),
         "hitl_pending": interrupted,
-        "thread_id": thread_id or get_request_id(),
+        "thread_id": effective_thread,
+        "conversation_id": conversation_id,
         "cached": False,
     }
     # 仅成功完成且无 HITL 挂起时写缓存
@@ -150,6 +170,7 @@ def ask_stream(
     chat_history: Optional[List[BaseMessage]] = None,
     *,
     user_roles: Optional[List[str]] = None,
+    conversation_id: Optional[str] = None,
 ) -> Generator[str, None, None]:
     """
     流式问答：guard → rewrite → retrieve 后逐 token 输出，末尾附带 __META__ JSON。
@@ -162,6 +183,8 @@ def ask_stream(
 
     history = compress_chat_history(chat_history or [])
     temp: RAGState = _base_state(question, history, user_roles)
+    if conversation_id:
+        temp["request_id"] = temp.get("request_id") or conversation_id
     temp = node_guard(temp)
     if temp.get("error") == "blocked":
         yield temp.get("answer", "Blocked")

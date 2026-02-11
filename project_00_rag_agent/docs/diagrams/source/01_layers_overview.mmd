@@ -8,8 +8,9 @@ flowchart TB
         API[api.py FastAPI]
         AUTH[JWT + RBAC]
         RL[Rate Limit]
-        CACHE[Redis Cache]
+        CACHE[Redis 答案缓存]
         RID[request_id]
+        CONV[storage/conversations<br/>会话读/写]
     end
 
     subgraph L3["③ 编排层 Orchestration"]
@@ -32,18 +33,21 @@ flowchart TB
     subgraph L6["⑥ 基础设施层 Infrastructure"]
         PROV[Provider Ollama/OpenAI]
         CB[Circuit Breaker]
-        CHROMA[(ChromaDB)]
+        CHROMA[(ChromaDB 向量)]
         BM25[(BM25 pickle)]
         KGSTORE[(KG pkl/json)]
         REDIS[(Redis)]
-        PG[(Postgres checkpoint)]
+        PG[(Postgres<br/>conversations + checkpoint)]
     end
 
-  ST -->|API 模式 HTTP| API
+  ST -->|API 模式 HTTP<br/>conversation_id + message| API
   ST -.->|Local 模式 进程内直连| AGENT
   CLI --> API
-  API --> AUTH --> RL --> CACHE --> RID
-  RID --> AGENT --> COMP --> GRAPH
+  API --> AUTH --> RL --> RID
+  API --> CONV
+  CONV --> PG
+  API --> CACHE --> AGENT
+  AGENT --> COMP --> GRAPH
   GRAPH --> CP
   GRAPH --> RET
   GRAPH --> ING

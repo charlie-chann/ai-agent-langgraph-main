@@ -1,0 +1,33 @@
+flowchart TD
+    subgraph Client["① 客户端"]
+        C1[只保存 conversation_id]
+        C2[每次 POST message]
+    end
+
+    subgraph API["② api.py"]
+        A1[POST /conversations 创建]
+        A2[GET /conversations/id/messages]
+        A3[POST /conversations/id/chat]
+    end
+
+    subgraph Store["storage/conversations.py"]
+        S1[(conversations 表)]
+        S2[(messages 表<br/>role + content 明文)]
+    end
+
+    subgraph Agent["③ agent.ask"]
+        G1[list_messages → compress → LangGraph]
+        G2[thread_id = conversation_id]
+    end
+
+    C1 --> A3
+    C2 --> A3
+    A1 --> S1
+    A3 --> S2
+    A3 --> G1
+    G1 --> S2
+    A2 --> S2
+
+    PG[(PostgreSQL)] --- S1
+    PG --- S2
+    SQLITE[(SQLite 降级)] -.->|无 Postgres 时| S1

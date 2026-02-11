@@ -62,6 +62,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://rag:rag@postgres:5432/rag_checkpoint
       CHECKPOINTER_BACKEND: postgres
+      CONVERSATIONS_BACKEND: postgres
       JWT_SECRET: docker-dev-secret-change-in-prod
       CACHE_ENABLED: "true"
       HITL_ENABLED: "true"

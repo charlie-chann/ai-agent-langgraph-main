@@ -37,6 +37,7 @@ NAMES = [
     "19_timeouts",
     "20_compression",
     "21_docker_topology",
+    "22_conversations",
 ]
 
 

@@ -21,14 +21,20 @@ flowchart TD
 
     CHAT[用户输入问题] --> CHATMODE{API 模式?}
 
-    CHATMODE -->|是| POST_CHAT[POST /chat]
-    POST_CHAT --> GW_CHAT["② 网关<br/>限流→JWT→RBAC→缓存"]
-    GW_CHAT --> AGENT["③ agent.ask"]
+    CHATMODE -->|是| ENSURE{session 有<br/>conversation_id?}
+    ENSURE -->|否| CREATE[POST /conversations]
+    CREATE --> CID[session 存 conversation_id]
+    ENSURE -->|是| CID
+    CID --> POST_CHAT["POST /conversations/id/chat<br/>只发 message"]
+    POST_CHAT --> GW_CHAT["② 网关<br/>限流→JWT→RBAC"]
+    GW_CHAT --> DB_LOAD["⑥ Postgres 加载 history"]
+    DB_LOAD --> AGENT["③ agent.ask"]
     AGENT --> STACK["④ LangGraph → ⑤ Tools → ⑥ LLM/存储"]
-    STACK --> JSON[JSON 返回 ① UI]
+    STACK --> DB_SAVE["⑥ 存 user + assistant 消息"]
+    DB_SAVE --> JSON[JSON 返回 ① UI]
     JSON --> HITL{hitl_pending?}
 
-    CHATMODE -->|否| STREAM_LOCAL["③ ask_stream 直连<br/>跳过 ② 网关"]
+    CHATMODE -->|否| STREAM_LOCAL["③ ask_stream 直连<br/>session messages 作 history"]
     STREAM_LOCAL --> STACK_LOCAL["④～⑥ 同栈"]
     STACK_LOCAL --> SHOW
 
@@ -36,5 +42,5 @@ flowchart TD
     HITL -->|否| SHOW[展示 answer + metadata]
 
     WARN --> ADMIN{admin Approve?}
-    ADMIN -->|是| RESUME[POST /hitl/resume 经 ② 网关]
+    ADMIN -->|是| RESUME[POST /hitl/resume<br/>thread_id=conversation_id]
     RESUME --> SHOW

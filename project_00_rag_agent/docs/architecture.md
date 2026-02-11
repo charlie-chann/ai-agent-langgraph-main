@@ -27,6 +27,9 @@ project_00_rag_agent/
 │   ├── rate_limit.py        # 限流
 │   └── request_context.py   # request_id
 │
+├── storage/                 # 会话持久化
+│   └── conversations.py     # PostgreSQL/SQLite conversations + messages
+│
 ├── providers/               # 模型 Provider 抽象
 │   └── factory.py           # Ollama / OpenAI 切换
 │
@@ -74,8 +77,9 @@ flowchart TB
         API[api.py FastAPI]
         AUTH[JWT + RBAC]
         RL[Rate Limit]
-        CACHE[Redis Cache]
+        CACHE[Redis 答案缓存]
         RID[request_id]
+        CONV[storage/conversations<br/>会话读/写]
     end
 
     subgraph L3["③ 编排层 Orchestration"]
@@ -98,18 +102,21 @@ flowchart TB
     subgraph L6["⑥ 基础设施层 Infrastructure"]
         PROV[Provider Ollama/OpenAI]
         CB[Circuit Breaker]
-        CHROMA[(ChromaDB)]
+        CHROMA[(ChromaDB 向量)]
         BM25[(BM25 pickle)]
         KGSTORE[(KG pkl/json)]
         REDIS[(Redis)]
-        PG[(Postgres checkpoint)]
+        PG[(Postgres<br/>conversations + checkpoint)]
     end
 
-  ST -->|API 模式 HTTP| API
+  ST -->|API 模式 HTTP<br/>conversation_id + message| API
   ST -.->|Local 模式 进程内直连| AGENT
   CLI --> API
-  API --> AUTH --> RL --> CACHE --> RID
-  RID --> AGENT --> COMP --> GRAPH
+  API --> AUTH --> RL --> RID
+  API --> CONV
+  CONV --> PG
+  API --> CACHE --> AGENT
+  AGENT --> COMP --> GRAPH
   GRAPH --> CP
   GRAPH --> RET
   GRAPH --> ING
@@ -132,8 +139,8 @@ flowchart TB
 | 层 | 职责（一句话） | 主要代码 | 本文章节 | 核心流程图 |
 |----|----------------|----------|----------|------------|
 | **① 客户端** | 收集输入、展示结果；API 模式发 HTTP，Local 模式直连 agent | `app.py`, eval harness | **三** | `02` UI 全栈路径、`03` Eval |
-| **② 网关** | 鉴权、限流、缓存、request_id；**仅 API 部署走此层** | `api.py`, `middleware/*` | **四** | `04` 网关入口、`05` JWT、`06` 缓存限流 |
-| **③ 编排** | 压缩历史、查缓存、组装 state、调用 LangGraph | `agent.py` | **五** | `07` ask、`08` ask_stream、`09` HITL resume、`10` startup |
+| **② 网关** | 鉴权、限流、答案缓存、request_id；**会话 history 从 Postgres 加载** | `api.py`, `middleware/*`, `storage/conversations.py` | **四** | `04` 网关、`05` JWT、`06` 缓存限流、`22` 会话存储 |
+| **③ 编排** | 压缩历史、查答案缓存、组装 state、调用 LangGraph | `agent.py` | **五** | `07` ask、`08` ask_stream、`09` HITL resume、`10` startup |
 | **④ 图引擎** | guard/HITL/改写/检索/生成/评分的有状态工作流 | `graph/*` | **六** | `11` 主图、`12` State、`13` Checkpointer |
 | **⑤ 工具** | 入库、混合检索、KG、冲突检测 | `tools/*` | **七** | `14` 检索、`15` ingest、`16` 冲突、`17` KG |
 | **⑥ 基础设施** | 模型调用、熔断、超时、持久化存储 | `providers/`, `core/`, 磁盘/Redis/PG | **八** | `18` 熔断、`19` 超时、`20` 压缩、`21` Docker |
@@ -151,7 +158,7 @@ flowchart TB
 
 ## 三、层 1：客户端层
 
-**本层职责**：人机交互、会话状态（`messages` / `token` / `thread_id`）、把用户操作转为 HTTP 或进程内调用；**不负责**检索与生成。
+**本层职责**：人机交互、会话状态（`conversation_id` / `token` / UI 展示用 `messages`）、把用户操作转为 HTTP 或进程内调用；**不负责**检索与生成。API 模式下 **chat_history 由服务端 PostgreSQL 存储**，客户端只传 `conversation_id` + `message`。
 
 ### 3.1 Streamlit UI 全栈路径（`app.py`）
 
@@ -186,14 +193,20 @@ flowchart TD
 
     CHAT[用户输入问题] --> CHATMODE{API 模式?}
 
-    CHATMODE -->|是| POST_CHAT[POST /chat]
-    POST_CHAT --> GW_CHAT["② 网关<br/>限流→JWT→RBAC→缓存"]
-    GW_CHAT --> AGENT["③ agent.ask"]
+    CHATMODE -->|是| ENSURE{session 有<br/>conversation_id?}
+    ENSURE -->|否| CREATE[POST /conversations]
+    CREATE --> CID[session 存 conversation_id]
+    ENSURE -->|是| CID
+    CID --> POST_CHAT["POST /conversations/id/chat<br/>只发 message"]
+    POST_CHAT --> GW_CHAT["② 网关<br/>限流→JWT→RBAC"]
+    GW_CHAT --> DB_LOAD["⑥ Postgres 加载 history"]
+    DB_LOAD --> AGENT["③ agent.ask"]
     AGENT --> STACK["④ LangGraph → ⑤ Tools → ⑥ LLM/存储"]
-    STACK --> JSON[JSON 返回 ① UI]
+    STACK --> DB_SAVE["⑥ 存 user + assistant 消息"]
+    DB_SAVE --> JSON[JSON 返回 ① UI]
     JSON --> HITL{hitl_pending?}
 
-    CHATMODE -->|否| STREAM_LOCAL["③ ask_stream 直连<br/>跳过 ② 网关"]
+    CHATMODE -->|否| STREAM_LOCAL["③ ask_stream 直连<br/>session messages 作 history"]
     STREAM_LOCAL --> STACK_LOCAL["④～⑥ 同栈"]
     STACK_LOCAL --> SHOW
 
@@ -201,7 +214,7 @@ flowchart TD
     HITL -->|否| SHOW[展示 answer + metadata]
 
     WARN --> ADMIN{admin Approve?}
-    ADMIN -->|是| RESUME[POST /hitl/resume 经 ② 网关]
+    ADMIN -->|是| RESUME[POST /hitl/resume<br/>thread_id=conversation_id]
     RESUME --> SHOW
 ```
 
@@ -249,12 +262,14 @@ flowchart TD
     RL -->|OK| ROUTE{路由分发}
 
     ROUTE --> AUTH_EP["/auth/token"]
-    ROUTE --> CHAT_EP["/chat /chat/stream"]
+    ROUTE --> CONV_EP["/conversations<br/>/conversations/id/messages<br/>/conversations/id/chat"]
+    ROUTE --> CHAT_EP["/chat /chat/stream<br/>兼容：自动建 conversation"]
     ROUTE --> INGEST_EP["/ingest"]
     ROUTE --> HITL_EP["/hitl/resume"]
     ROUTE --> OPS["/health /ready /stats /metrics"]
 
-    CHAT_EP --> JWT{Bearer Token?}
+    CONV_EP --> JWT{Bearer Token?}
+    CHAT_EP --> JWT
     INGEST_EP --> JWT
     HITL_EP --> JWT
     OPS --> JWT2{需鉴权?}
@@ -264,7 +279,10 @@ flowchart TD
     RBAC -->|否| E403[403]
     RBAC -->|是| HANDLER[业务 Handler]
 
-    HANDLER --> RID[new_request_id]
+    HANDLER --> CHAT_FLOW{聊天类?}
+    CHAT_FLOW -->|是| DB[storage: 读/写 messages]
+    CHAT_FLOW -->|否| RID[new_request_id]
+    DB --> RID
     RID --> AGENT_CALL[调用 agent.py]
 ```
 
@@ -314,7 +332,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph Cache["middleware/cache.py"]
-        C1[ask 前 cache_key question+roles] --> C2{Redis 命中?}
+        C1["ask 前 cache_key<br/>question + roles + conversation_id"] --> C2{Redis 命中?}
         C2 -->|是| C3[直接返回答案 cached=true]
         C2 -->|否| C4[跑完整图]
         C4 --> C5{HITL/错误?}
@@ -326,6 +344,11 @@ flowchart TD
         R1[每请求 incr key] --> R2{count > 60/min?}
         R2 -->|是| R3[429 + Retry-After]
         R2 -->|否| R4[放行]
+    end
+
+    subgraph History["storage/conversations.py — 非 Redis"]
+        H1[chat_history 明文存 Postgres/SQLite]
+        H2[客户端只传 conversation_id]
     end
 
     INGEST_DONE[POST /ingest 成功] --> CLEAR[cache_delete_prefix rag:ask:]
@@ -346,26 +369,78 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START([ask question]) --> COMPRESS[compress_chat_history<br/>滑动窗口 + token 预算]
+    START([POST /conversations/id/chat<br/>仅 message + conversation_id]) --> LOAD[storage: list_messages<br/>PostgreSQL / SQLite 降级]
+    LOAD --> DICT[dict_history_to_messages]
+    DICT --> COMPRESS[compress_chat_history<br/>裁历史，不裁 question]
 
-    COMPRESS --> CACHE{use_cache && Redis?}
+    COMPRESS --> CACHE{use_cache && Redis?<br/>key 含 conversation_id}
     CACHE -->|命中| RET_CACHED[返回 cached 结果]
-    CACHE -->|未命中| BUILD[_base_state<br/>question/roles/request_id/hitl]
-
-    BUILD --> CONFIG[configurable thread_id]
+    CACHE -->|未命中| BUILD[_base_state<br/>question/roles/hitl]
+    BUILD --> CONFIG["thread_id = conversation_id"]
     CONFIG --> INVOKE[get_graph.invoke]
 
     INVOKE --> PACK[打包 result<br/>answer/sources/grade/hitl_pending/...]
-    PACK --> SAVE{可缓存?}
-    SAVE -->|是| CACHE_SET[cache_set]
-    SAVE -->|否| RETURN
-    CACHE_SET --> RETURN([返回 dict])
-    RET_CACHED --> RETURN
+    PACK --> CACHE_W{可缓存?}
+    CACHE_W -->|是| CACHE_SET[cache_set]
+    CACHE_W -->|否| PERSIST
+    CACHE_SET --> PERSIST[storage: append user + assistant<br/>messages 表]
+    RET_CACHED --> PERSIST
+
+    PERSIST --> RETURN([返回 dict + conversation_id])
 ```
 
 </details>
 
-### 5.2 `ask_stream()` 流式问答流程
+
+
+### 5.2 会话存储（`storage/conversations.py`）
+
+生产形态：**客户端只传 `conversation_id` + `message`**，`chat_history` 由服务端从 PostgreSQL（无则 SQLite 降级）加载与落库。`conversation_id` 同时作为 LangGraph `thread_id`（HITL 对齐）。
+
+![会话存储](./diagrams/22_conversations.png)
+
+<details>
+<summary>查看 Mermaid 源码（可编辑后运行 scripts/render_diagrams.py 重新出图）</summary>
+
+```mermaid
+flowchart TD
+    subgraph Client["① 客户端"]
+        C1[只保存 conversation_id]
+        C2[每次 POST message]
+    end
+
+    subgraph API["② api.py"]
+        A1[POST /conversations 创建]
+        A2[GET /conversations/id/messages]
+        A3[POST /conversations/id/chat]
+    end
+
+    subgraph Store["storage/conversations.py"]
+        S1[(conversations 表)]
+        S2[(messages 表<br/>role + content 明文)]
+    end
+
+    subgraph Agent["③ agent.ask"]
+        G1[list_messages → compress → LangGraph]
+        G2[thread_id = conversation_id]
+    end
+
+    C1 --> A3
+    C2 --> A3
+    A1 --> S1
+    A3 --> S2
+    A3 --> G1
+    G1 --> S2
+    A2 --> S2
+
+    PG[(PostgreSQL)] --- S1
+    PG --- S2
+    SQLITE[(SQLite 降级)] -.->|无 Postgres 时| S1
+```
+
+</details>
+
+### 5.3 `ask_stream()` 流式问答流程
 
 ![ask_stream() 流式](./diagrams/08_ask_stream.png)
 
@@ -388,7 +463,7 @@ flowchart TD
 
 </details>
 
-### 5.3 `resume_hitl()` HITL 恢复流程
+### 5.4 `resume_hitl()` HITL 恢复流程
 
 ![HITL resume](./diagrams/09_hitl_resume.png)
 
@@ -397,7 +472,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START([resume_hitl thread_id]) --> SNAP[graph.get_state]
+    START([POST /hitl/resume<br/>thread_id = conversation_id]) --> SNAP[graph.get_state]
     SNAP -->|无| ERR[No pending thread]
     SNAP -->|有| APPROVE{approved?}
 
@@ -407,12 +482,13 @@ flowchart TD
     APPROVE -->|是| UPDATE[update_state hitl_approved=true]
     UPDATE --> RESUME[graph.invoke None 从 interrupt 继续]
     RESUME --> FLOW[hitl_gate → rewrite → retrieve → generate → grade]
-    FLOW --> END2([返回完整 answer])
+    FLOW --> SAVE[storage: append assistant 消息]
+    SAVE --> END2([返回完整 answer])
 ```
 
 </details>
 
-### 5.4 启动预热（`startup()`）
+### 5.5 启动预热（`startup()`）
 
 ![启动预热](./diagrams/10_startup.png)
 
@@ -783,9 +859,9 @@ flowchart TB
     USER --> API[rag-api :8000 FastAPI]
 
     API --> OLL[ollama :11434]
-    API --> REDIS[redis :6379]
-    API --> PG[postgres :5432 checkpoint]
-    API --> VOL1[(chroma_db volume)]
+    API --> REDIS[redis :6379<br/>答案缓存 + 限流]
+    API --> PG["postgres :5432<br/>conversations + messages<br/>LangGraph checkpoint"]
+    API --> VOL1[(chroma_db volume<br/>知识库向量)]
     API --> VOL2[(kg_store volume)]
 ```
 
@@ -797,7 +873,7 @@ flowchart TB
 | rag-ui | 8501 | Streamlit |
 | ollama | 11434 | LLM + Embed |
 | redis | 6379 | Cache + rate limit |
-| postgres | 5432 | HITL checkpoint |
+| postgres | 5432 | conversations + messages + HITL checkpoint |
 
 ---
 
@@ -806,9 +882,14 @@ flowchart TB
 | 方法 | 路径 | 权限 | 对应流程 |
 |------|------|------|----------|
 | POST | `/auth/token` | 公开 | 层2 鉴权 |
-| POST | `/chat` | chat | 层3 ask → 层4 全图 |
-| POST | `/chat/stream` | chat | 层3 ask_stream |
-| POST | `/hitl/resume` | admin | 层3 resume_hitl |
+| POST | `/conversations` | chat | 创建会话，返回 `conversation_id` |
+| GET | `/conversations` | chat | 列出当前用户会话 |
+| GET | `/conversations/{id}/messages` | chat | 读取会话历史（服务端权威） |
+| POST | `/conversations/{id}/chat` | chat | **推荐**：DB 加载 history → 层3 ask → 落库 |
+| POST | `/conversations/{id}/chat/stream` | chat | 流式版 |
+| POST | `/chat` | chat | 兼容：无 `conversation_id` 时自动创建 |
+| POST | `/chat/stream` | chat | 兼容流式 |
+| POST | `/hitl/resume` | admin | 层3 resume_hitl（`thread_id=conversation_id`） |
 | POST | `/ingest` | admin/editor | 层5 入库 |
 | GET | `/health` | 公开 | 存活探针 |
 | GET | `/ready` | 公开 | Chroma + 熔断检查 |
@@ -838,7 +919,8 @@ python eval/harness/run_eval.py --project 00 --prompt v2 --regression
 |------|-----------|------------|
 | Provider | 仅 Ollama | Ollama / OpenAI 可切换 |
 | 鉴权 | 无 | JWT + RBAC |
-| 缓存/限流 | 无 | Redis + 内存 fallback |
+| 缓存/限流 | 无 | Redis 答案缓存 + 限流（history 不在 Redis） |
+| 会话存储 | 无 | PostgreSQL `conversation_id` + messages 表 |
 | BM25 | 内存，重启丢失 | pickle 持久化 + 启动重建 |
 | KG | 无 | 规则 + LLM hybrid 抽取 |
 | HITL | 无 | interrupt_before + Postgres |
@@ -850,4 +932,4 @@ python eval/harness/run_eval.py --project 00 --prompt v2 --regression
 
 ## 十二、一句话串起来（面试可背）
 
-> **Client** 调 **API**（JWT + 限流）→ **agent** 压缩历史 + 查缓存 → **LangGraph**（guard → 可选 HITL 中断 → rewrite → **hybrid 检索 + ACL + KG + 冲突** → generate → grade 重试）→ **Provider** 调 LLM（带超时/熔断）→ 返回答案；**ingest** 走独立流水线写 Chroma + BM25 + KG。
+> **Client** 持 `conversation_id` 调 **API**（JWT + 限流）→ **DB 加载 chat_history** → **agent** 压缩历史 + 查**答案**缓存 → **LangGraph**（guard → 可选 HITL → rewrite → hybrid 检索 + ACL + KG → generate → grade）→ **落库 user/assistant 消息** → 返回答案；**ingest** 写 Chroma + BM25 + KG；**Redis** 只缓存答案与限流，不存聊天记录。

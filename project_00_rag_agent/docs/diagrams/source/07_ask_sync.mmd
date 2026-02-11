@@ -1,16 +1,19 @@
 flowchart TD
-    START([ask question]) --> COMPRESS[compress_chat_history<br/>滑动窗口 + token 预算]
+    START([POST /conversations/id/chat<br/>仅 message + conversation_id]) --> LOAD[storage: list_messages<br/>PostgreSQL / SQLite 降级]
+    LOAD --> DICT[dict_history_to_messages]
+    DICT --> COMPRESS[compress_chat_history<br/>裁历史，不裁 question]
 
-    COMPRESS --> CACHE{use_cache && Redis?}
+    COMPRESS --> CACHE{use_cache && Redis?<br/>key 含 conversation_id}
     CACHE -->|命中| RET_CACHED[返回 cached 结果]
-    CACHE -->|未命中| BUILD[_base_state<br/>question/roles/request_id/hitl]
-
-    BUILD --> CONFIG[configurable thread_id]
+    CACHE -->|未命中| BUILD[_base_state<br/>question/roles/hitl]
+    BUILD --> CONFIG["thread_id = conversation_id"]
     CONFIG --> INVOKE[get_graph.invoke]
 
     INVOKE --> PACK[打包 result<br/>answer/sources/grade/hitl_pending/...]
-    PACK --> SAVE{可缓存?}
-    SAVE -->|是| CACHE_SET[cache_set]
-    SAVE -->|否| RETURN
-    CACHE_SET --> RETURN([返回 dict])
-    RET_CACHED --> RETURN
+    PACK --> CACHE_W{可缓存?}
+    CACHE_W -->|是| CACHE_SET[cache_set]
+    CACHE_W -->|否| PERSIST
+    CACHE_SET --> PERSIST[storage: append user + assistant<br/>messages 表]
+    RET_CACHED --> PERSIST
+
+    PERSIST --> RETURN([返回 dict + conversation_id])

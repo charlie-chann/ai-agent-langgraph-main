@@ -30,6 +30,7 @@ NAMES = [
     "19_timeouts",
     "20_compression",
     "21_docker_topology",
+    "22_conversations",
 ]
 
 TITLES = [
@@ -54,6 +55,7 @@ TITLES = [
     "超时控制",
     "上下文压缩",
     "Docker 拓扑",
+    "会话存储 conversation_id",
 ]
 
 

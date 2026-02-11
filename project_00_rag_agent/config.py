@@ -121,6 +121,14 @@ class Settings(BaseSettings):
         default="postgresql://rag:rag@localhost:5432/rag_checkpoint",
         alias="DATABASE_URL",
     )
+    # conversations_backend：auto=优先 Postgres；sqlite=本地文件；postgres=强制 Postgres
+    conversations_backend: Literal["auto", "postgres", "sqlite"] = Field(
+        default="auto", alias="CONVERSATIONS_BACKEND"
+    )
+    conversations_sqlite_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "conversations.db",
+        alias="CONVERSATIONS_SQLITE_PATH",
+    )
 
     # ── KG extraction ──────────────────────────────────────────────────────────
     # rule=规则抽取；llm=大模型抽取；hybrid=规则优先、LLM 补全

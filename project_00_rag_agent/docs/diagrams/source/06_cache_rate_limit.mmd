@@ -1,6 +1,6 @@
 flowchart TD
     subgraph Cache["middleware/cache.py"]
-        C1[ask 前 cache_key question+roles] --> C2{Redis 命中?}
+        C1["ask 前 cache_key<br/>question + roles + conversation_id"] --> C2{Redis 命中?}
         C2 -->|是| C3[直接返回答案 cached=true]
         C2 -->|否| C4[跑完整图]
         C4 --> C5{HITL/错误?}
@@ -12,6 +12,11 @@ flowchart TD
         R1[每请求 incr key] --> R2{count > 60/min?}
         R2 -->|是| R3[429 + Retry-After]
         R2 -->|否| R4[放行]
+    end
+
+    subgraph History["storage/conversations.py — 非 Redis"]
+        H1[chat_history 明文存 Postgres/SQLite]
+        H2[客户端只传 conversation_id]
     end
 
     INGEST_DONE[POST /ingest 成功] --> CLEAR[cache_delete_prefix rag:ask:]

@@ -7,12 +7,14 @@ flowchart TD
     RL -->|OK| ROUTE{路由分发}
 
     ROUTE --> AUTH_EP["/auth/token"]
-    ROUTE --> CHAT_EP["/chat /chat/stream"]
+    ROUTE --> CONV_EP["/conversations<br/>/conversations/id/messages<br/>/conversations/id/chat"]
+    ROUTE --> CHAT_EP["/chat /chat/stream<br/>兼容：自动建 conversation"]
     ROUTE --> INGEST_EP["/ingest"]
     ROUTE --> HITL_EP["/hitl/resume"]
     ROUTE --> OPS["/health /ready /stats /metrics"]
 
-    CHAT_EP --> JWT{Bearer Token?}
+    CONV_EP --> JWT{Bearer Token?}
+    CHAT_EP --> JWT
     INGEST_EP --> JWT
     HITL_EP --> JWT
     OPS --> JWT2{需鉴权?}
@@ -22,5 +24,8 @@ flowchart TD
     RBAC -->|否| E403[403]
     RBAC -->|是| HANDLER[业务 Handler]
 
-    HANDLER --> RID[new_request_id]
+    HANDLER --> CHAT_FLOW{聊天类?}
+    CHAT_FLOW -->|是| DB[storage: 读/写 messages]
+    CHAT_FLOW -->|否| RID[new_request_id]
+    DB --> RID
     RID --> AGENT_CALL[调用 agent.py]

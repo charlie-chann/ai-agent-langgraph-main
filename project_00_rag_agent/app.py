@@ -37,13 +37,14 @@ st.set_page_config(
 # ── Session 默认值 ────────────────────────────────────────────────────────────
 # Streamlit 刷新页面时 session_state 持久化；此处仅首次访问时初始化
 for key, default in [
-    ("messages", []),       # 聊天消息列表 {role, content, meta?}
-    ("metrics", []),        # 每次问答 latency 记录
-    ("token", None),        # API 模式 JWT
-    ("role", "viewer"),     # 当前 RBAC 角色（影响 ACL 与 ingest 权限）
-    ("thread_id", None),    # LangGraph 线程，HITL 续跑用
-    ("use_api", False),     # 是否走 FastAPI 后端
-    ("ingested", False),    # 是否已成功 ingest（仅 UI 提示用）
+    ("messages", []),       # UI 展示用消息（与 DB 同步）
+    ("metrics", []),
+    ("token", None),
+    ("role", "viewer"),
+    ("conversation_id", None),  # 服务端会话 ID（API 模式）
+    ("thread_id", None),    # 与 conversation_id 对齐，HITL 用
+    ("use_api", False),
+    ("ingested", False),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -70,32 +71,68 @@ def _login(username: str, password: str) -> bool:
     return False
 
 
+def _auth_headers() -> dict:
+    return {"Authorization": f"Bearer {st.session_state.token}"}
+
+
+def _ensure_conversation_api() -> str:
+    """API 模式：确保有 conversation_id，没有则向服务端创建。"""
+    if st.session_state.conversation_id:
+        return st.session_state.conversation_id
+    r = httpx.post(
+        f"{_api_base()}/conversations",
+        json={},
+        headers=_auth_headers(),
+        timeout=10,
+    )
+    r.raise_for_status()
+    cid = r.json()["conversation_id"]
+    st.session_state.conversation_id = cid
+    st.session_state.thread_id = cid
+    return cid
+
+
+def _load_messages_from_api(conversation_id: str) -> None:
+    """从服务端拉取会话消息，刷新 UI 展示。"""
+    r = httpx.get(
+        f"{_api_base()}/conversations/{conversation_id}/messages",
+        headers=_auth_headers(),
+        timeout=10,
+    )
+    r.raise_for_status()
+    st.session_state.messages = [
+        {"role": m["role"], "content": m["content"], "meta": m.get("metadata") or {}}
+        for m in r.json().get("messages", [])
+        if m["role"] in ("user", "assistant")
+    ]
+
+
 def _chat_api(message: str) -> dict:
     """
-    API 模式同步问答：携带 Bearer token 与 chat_history、thread_id。
+    API 模式：只发 message，chat_history 由服务端 PostgreSQL/SQLite 加载。
     """
-    headers = {"Authorization": f"Bearer {st.session_state.token}"}
-    payload = {
-        "message": message,
-        "chat_history": [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[:-1]],
-        "thread_id": st.session_state.thread_id,
-        "hitl_approved": False,
-    }
-    r = httpx.post(f"{_api_base()}/chat", json=payload, headers=headers, timeout=120)
+    cid = _ensure_conversation_api()
+    r = httpx.post(
+        f"{_api_base()}/conversations/{cid}/chat",
+        json={"message": message},
+        headers=_auth_headers(),
+        timeout=120,
+    )
     r.raise_for_status()
     return r.json()
 
 
 def _chat_local(message: str):
     """
-    Local 模式流式问答：直接调用 agent.ask_stream。
-
-    侧边栏通过 os.environ 设置的 RETRIEVAL_MODE、KG_ENABLED 等在此生效。
+    Local 模式流式问答：使用 session 内多轮历史（进程内，不经 DB）。
     """
     from agent import ask_stream
-    from config import settings
+    from core.compression import dict_history_to_messages
 
-    for token in ask_stream(message, user_roles=[st.session_state.role, "public"]):
+    history = dict_history_to_messages(
+        [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[:-1]]
+    )
+    for token in ask_stream(message, history, user_roles=[st.session_state.role, "public"]):
         yield token
 
 
@@ -188,8 +225,17 @@ with st.sidebar:
     if st.button("🗑️ Clear chat"):
         st.session_state.messages = []
         st.session_state.metrics = []
+        st.session_state.conversation_id = None
         st.session_state.thread_id = None
         st.rerun()
+
+    if st.session_state.use_api and st.session_state.token and st.session_state.conversation_id:
+        if st.button("🔄 Reload history from server"):
+            try:
+                _load_messages_from_api(st.session_state.conversation_id)
+                st.success("History reloaded")
+            except Exception as e:
+                st.error(str(e))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 主区域：历史消息渲染 + 聊天输入
@@ -224,7 +270,8 @@ if prompt := st.chat_input("Ask about your knowledge base..."):
                 data = _chat_api(prompt)
                 full = data.get("answer", "")
                 meta = data
-                st.session_state.thread_id = data.get("thread_id")
+                st.session_state.conversation_id = data.get("conversation_id") or st.session_state.conversation_id
+                st.session_state.thread_id = data.get("thread_id") or st.session_state.conversation_id
                 if data.get("hitl_pending"):
                     st.warning("⏸ HITL pending — admin approval required")
                 placeholder.markdown(full)
