@@ -13,24 +13,24 @@ flowchart TB
         CONV[storage/conversations<br/>会话读/写]
     end
 
-    subgraph L3["③ 编排层 Orchestration"]
+    subgraph L3["③ 调度层 Scheduling · 详图 07–10"]
         AGENT[agent.py]
         COMP[compression 压缩]
     end
 
-    subgraph L4["④ 图引擎层 LangGraph"]
+    subgraph L4["④ 执行层 Execution · 详图 11–13"]
         GRAPH[guard→hitl→rewrite→retrieve→generate→grade]
         CP[Checkpointer Postgres/Memory]
     end
 
-    subgraph L5["⑤ 工具层 Tools"]
+    subgraph L5["⑤ 工具层 Tools · 详图 14–17"]
         RET[retriever 混合检索]
         ING[ingest 入库]
         KG[knowledge_graph]
         CONF[conflict 冲突]
     end
 
-    subgraph L6["⑥ 基础设施层 Infrastructure"]
+    subgraph L6["⑥ 基础设施 Infrastructure · 详图 18–21"]
         PROV[Provider Ollama/OpenAI]
         CB[Circuit Breaker]
         CHROMA[(ChromaDB 向量)]

@@ -1,55 +1,55 @@
 flowchart TD
-    BOOT([api lifespan · 详图 10]) --> READY([服务就绪])
+    BOOT(["②网关层 lifespan · 详图 10"]) --> READY([服务就绪])
 
-    subgraph L1["①客户端 · 详图 02"]
+    subgraph L1["① 客户端 · 详图 02/03"]
         ST[Streamlit]
         CLI[curl / SDK]
-        EVAL[Eval · 详图 03]
+        EVAL[Eval]
     end
 
-    EVAL --> EVAL_DONE([eval results])
+    EVAL --> EVAL_DONE(["③调度层 eval · 无②网关层"])
 
-    ST --> MODE{API backend?}
-    MODE -->|是| L1_API["登录 · 详图 05<br/>建会话 · 详图 22<br/>UI 当前：同步 chat · 图 07"]
-    MODE -->|否| L1_LOC["Local：session 历史<br/>ask_stream · 图 08"]
+    ST --> MODE{API?}
+    MODE -->|是| L1_API["①客户端 → ②网关层<br/>登录·05 建会话·22<br/>chat · 详图 07"]
+    MODE -->|否| L1_LOC["①客户端 → ③调度层<br/>ask_stream · 详图 08"]
     L1_API --> GW
     L1_LOC --> SCH0
     CLI --> GW
 
-    subgraph L2["②网关 api.py · 详图 04"]
-        GW[HTTP] --> RL{rate_limit · 详图 06}
-        RL --> JWT{JWT + RBAC · 详图 05}
+    subgraph L2["② 网关层 · 详图 04–06/22"]
+        GW[HTTP] --> RL["限流 · 详图 06 · ⑥Redis"]
+        RL --> JWT["JWT · 详图 05"]
         JWT --> ROUTE{路由}
     end
 
-    ROUTE -->|/ingest| ING([ingest · 详图 15/17 · ⑥Chroma/BM25/KG])
+    ROUTE -->|/ingest| ING(["⑤工具层 · 详图 15/17<br/>⑥Chroma/BM25/KG"])
     ROUTE -->|/chat*| CHAT
-    ROUTE -->|/hitl/resume| HITL_BOX([HITL · 详图 09])
-    ROUTE -->|/health /ready /metrics| OPS([运维 · 详图 18])
+    ROUTE -->|/hitl/resume| HITL_BOX(["③调度层 · 详图 09"])
+    ROUTE -->|/health…| OPS(["⑥基础设施 · 详图 18/21"])
 
-    CHAT["读 history · 详图 22 · ⑥PG<br/>同步 图07 / 流式 图08"] --> SCH0
+    CHAT["②网关层 读 history<br/>详图 22 · ⑥PG"] --> SCH0
 
-    subgraph SCH["③调度 agent.py"]
-        SCH0[compress · 详图 20] --> CACHE{"cache_get · 详图 06 · ⑥Redis"}
-        CACHE -->|命中| CACHED([cached 返回])
+    subgraph SCH["③ 调度层 · 详图 07–10"]
+        SCH0["compress · 详图 20"] --> CACHE{"cache · 详图 06 · ⑥Redis"}
+        CACHE -->|命中| CACHED([cached])
         CACHE -->|未命中| DRV{流式?}
-        DRV -->|否| INV[invoke · 图 07]
-        DRV -->|是| AST[astream · 图 08]
+        DRV -->|否| INV["invoke · 详图 07"]
+        DRV -->|是| AST["astream · 详图 08"]
     end
 
     INV --> EXEC_NODE
     AST --> EXEC_NODE
 
-    subgraph EXEC["④执行 LangGraph · 详图 11/13"]
-        EXEC_NODE["guard→…→grade<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
+    subgraph EXEC["④ 执行层 · 详图 11–13"]
+        EXEC_NODE["LangGraph 全图<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
     end
 
-    EXEC --> PACK["③打包 result · cache_set? · 详图 06"]
+    EXEC --> PACK["③调度层 打包 · cache_set? · 06"]
     CACHED --> PACK
 
-    PACK --> SAVE{落库?}
-    SAVE -->|API| DB["append · 详图 22 · ⑥PG"]
-    SAVE -->|Local| SESS[session_state]
+    PACK --> SAVE{落库}
+    SAVE -->|API| DB["②网关层 · 详图 22 · ⑥PG"]
+    SAVE -->|Local| SESS["①客户端 session"]
     DB --> OUT
     SESS --> OUT
     ING --> OUT
@@ -57,11 +57,11 @@ flowchart TD
     HITL_BOX --> OUT
 
     OUT{响应}
-    OUT -->|同步| JSON([JSON · 图 07])
-    OUT -->|流式| SSE([SSE · 图 08])
-    JSON --> UI[展示 · 详图 02]
+    OUT -->|同步| JSON(["②网关层 JSON · 07"])
+    OUT -->|流式| SSE(["②网关层 SSE · 08"])
+    JSON --> UI["①客户端 展示"]
     SSE --> UI
 
     UI -.->|hitl_pending| HITL_BOX
 
-    %% 图00 总览：细节见分图；不展开节点内部
+    %% 六层：①客户端 ②网关层 ③调度层(07–10) ④执行层(11–13) ⑤工具层(14–17) ⑥基础设施(18–21)

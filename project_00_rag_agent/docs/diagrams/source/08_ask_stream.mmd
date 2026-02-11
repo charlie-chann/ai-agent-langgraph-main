@@ -1,29 +1,29 @@
 flowchart TD
-    START(["api.conversation_chat_stream()<br/>来自 04 网关聊天 Handler"]) --> RID[new_request_id + metrics]
-    RID --> LOAD["① DB 读 history<br/>详图 22 · ⑥PG/SQLite"]
-    LOAD --> UMSG["写 user 消息<br/>详图 22 · ⑥PG/SQLite"]
+    START(["②网关层 conversation_chat_stream<br/>详图 04"]) --> RID["②网关层 new_request_id + metrics"]
+    RID --> LOAD["②网关层 读 history<br/>详图 22 · ⑥PG/SQLite"]
+    LOAD --> UMSG["②网关层 写 user<br/>详图 22 · ⑥PG/SQLite"]
 
-    UMSG --> A1["② compress_chat_history<br/>详图 20"]
-    A1 --> A2{"③ Redis cache_get<br/>详图 06 · ⑥Redis"}
+    UMSG --> A1["③调度层 compress<br/>详图 20"]
+    A1 --> A2{"③调度层 cache_get<br/>详图 06 · ⑥Redis"}
 
-    A2 -->|命中| A2H[分块 yield cached + __META__]
-    A2 -->|未命中| A3["ask_stream_async · astream<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
+    A2 -->|命中| A2H["③调度层 yield cached + __META__"]
+    A2 -->|未命中| A3["③调度层 astream → ④执行层<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
 
-    A3 --> A4["③ yield token + __META__<br/>grade 定稿后 flush buffer"]
-    A4 --> A5{可写回答缓存?}
-    A5 -->|是| A6["cache_set<br/>详图 06 · ⑥Redis"]
+    A3 --> A4["③调度层 yield token + __META__"]
+    A4 --> A5{可写缓存?}
+    A5 -->|是| A6["③调度层 cache_set<br/>详图 06 · ⑥Redis"]
     A5 -->|否| MERGE[result]
     A6 --> MERGE
 
     A2H --> WRAP
-    MERGE --> WRAP["api._gen：SSE 包装<br/>yield data: token / __META__"]
+    MERGE --> WRAP["②网关层 _gen SSE<br/>yield token / __META__"]
 
-    WRAP --> SAVE["④ DB 写 assistant<br/>详图 22 · ⑥PG/SQLite"]
+    WRAP --> SAVE["②网关层 写 assistant<br/>详图 22 · ⑥PG/SQLite"]
     SAVE --> TIT{首轮?}
-    TIT -->|是| TITLE[touch_conversation 标题]
+    TIT -->|是| TITLE["②网关层 touch_conversation"]
     TIT -->|否| RETURN
-    TITLE --> RETURN(["SSE data: DONE"])
+    TITLE --> RETURN(["②网关层 SSE DONE"])
 
-    RETURN -.->|hitl_pending| H09["详图 09<br/>↳ ④13 · ⑥PG"]
+    RETURN -.->|hitl_pending| H09["③调度层 → 详图 09<br/>↳ ④13 · ⑥PG"]
 
-    %% 与 07 差异：astream、先写 user、yield+SSE；执行内工具/基建见 11 框标注
+    %% 与 07 差异：astream、先写 user、yield+SSE（③调度层 + ②网关层）

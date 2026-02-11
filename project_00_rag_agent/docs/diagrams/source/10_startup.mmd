@@ -1,4 +1,4 @@
-flowchart LR
-    BOOT([api lifespan]) --> S1["startup rebuild_bm25<br/>详图 14 · ⑥Chroma/BM25"]
-    S1 --> S2["get_checkpointer<br/>详图 13 · ⑥PG"]
-    S2 --> READY[服务就绪]
+flowchart TD
+    BOOT(["②网关层 api lifespan"]) --> S1["③调度层 startup<br/>⑤工具层 BM25 重建 · 详图 14<br/>⑥Chroma/BM25"]
+    S1 --> S2["④执行层 checkpointer<br/>详图 13 · ⑥PG"]
+    S2 --> READY([服务就绪])

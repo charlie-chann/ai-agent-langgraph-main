@@ -1,26 +1,25 @@
 flowchart TD
-    START(["api._run_chat()<br/>来自 04 网关聊天 Handler"]) --> RID[new_request_id + metrics]
-    RID --> LOAD["① DB 读 history<br/>详图 22 · ⑥PG/SQLite"]
-    LOAD --> A1["② compress_chat_history<br/>详图 20"]
-    A1 --> A2{"③ Redis cache_get<br/>详图 06 · ⑥Redis"}
+    START(["②网关层 api._run_chat()<br/>详图 04"]) --> RID["②网关层 new_request_id + metrics"]
+    RID --> LOAD["②网关层 读 history<br/>详图 22 · ⑥PG/SQLite"]
+    LOAD --> A1["③调度层 compress<br/>详图 20"]
+    A1 --> A2{"③调度层 cache_get<br/>详图 06 · ⑥Redis"}
 
-    A2 -->|命中| A2H[直接返回 cached answer]
-    A2 -->|未命中| A3["get_graph.invoke · 详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
+    A2 -->|命中| A2H["③调度层 返回 cached"]
+    A2 -->|未命中| A3["③调度层 invoke → ④执行层<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
 
-    A3 --> A4[打包 result]
-    A4 --> A5{可写回答缓存?}
-    A5 -->|是| A6["cache_set<br/>详图 06 · ⑥Redis"]
+    A3 --> A4["③调度层 打包 result"]
+    A4 --> A5{可写缓存?}
+    A5 -->|是| A6["③调度层 cache_set<br/>详图 06 · ⑥Redis"]
     A5 -->|否| MERGE[result]
     A6 --> MERGE
 
     A2H --> SAVE
-    MERGE --> SAVE["④ DB 写消息<br/>详图 22 · ⑥PG/SQLite"]
+    MERGE --> SAVE["②网关层 写 user+assistant<br/>详图 22 · ⑥PG/SQLite"]
     SAVE --> TIT{首轮?}
-    TIT -->|是| TITLE[touch_conversation 标题]
+    TIT -->|是| TITLE["②网关层 touch_conversation"]
     TIT -->|否| RETURN
-    TITLE --> RETURN([返回 JSON])
+    TITLE --> RETURN(["②网关层 返回 JSON"])
 
-    RETURN -.->|hitl_pending| H09["详图 09<br/>↳ ④13 · ⑥PG"]
+    RETURN -.->|hitl_pending| H09["③调度层 → 详图 09<br/>↳ ④13 · ⑥PG"]
 
-    %% ②③ 在 agent.ask()；①④ 在 api._run_chat()
-    %% ⑤=工具层 14/15/16/17；⑥=基建 18/19/20/Redis/PG/Chroma 等
+    %% ③调度层=agent.ask()；②网关层=api._run_chat()

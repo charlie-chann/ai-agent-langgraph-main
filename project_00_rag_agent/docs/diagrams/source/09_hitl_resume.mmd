@@ -1,17 +1,17 @@
 flowchart TD
-    FROM(["来自 07 / 08<br/>hitl_pending=true<br/>第一次请求已结束"]) -.-> START
+    FROM(["③调度层 07/08 中断<br/>hitl_pending"]) -.-> START
 
-    START([POST /hitl/resume<br/>thread_id = conversation_id]) --> SNAP["graph.get_state<br/>详图 13 · ⑥PG"]
+    START(["②网关层 POST /hitl/resume<br/>详图 04/05"]) --> SNAP["④执行层 get_state<br/>详图 13 · ⑥PG"]
     SNAP -->|无| ERR[No pending thread]
     SNAP -->|有| APPROVE{approved?}
 
-    APPROVE -->|否| REJECT[update_state 拒答]
-    REJECT --> END1([返回 rejected JSON])
+    APPROVE -->|否| REJECT["③调度层 update_state 拒答"]
+    REJECT --> END1(["②网关层 返回 rejected"])
 
-    APPROVE -->|是| UPDATE[update_state hitl_approved=true]
-    UPDATE --> RESUME["graph.invoke(None)<br/>详图 11 · ④13"]
-    RESUME --> FLOW["续跑全图<br/>↳ ⑤14/16/17 · ⑥18/19/20"]
-    FLOW --> SAVE["append assistant<br/>详图 22 · ⑥PG"]
-    SAVE --> END2([返回完整 answer JSON])
+    APPROVE -->|是| UPDATE["③调度层 hitl_approved=true"]
+    UPDATE --> RESUME["③调度层 invoke → ④执行层<br/>详图 11 · ④13"]
+    RESUME --> FLOW["④执行层 续跑全图<br/>↳ ⑤14/16/17 · ⑥18/19/20"]
+    FLOW --> SAVE["②网关层 append assistant<br/>详图 22 · ⑥PG"]
+    SAVE --> END2(["②网关层 返回 answer JSON"])
 
-    %% 独立第二次 HTTP；07/08 在 invoke/astream 中断后均走此路径
+    %% 独立第二次 HTTP
