@@ -42,7 +42,7 @@ def _import_rag_ask(project: str):
     rag_root = str(resolve_rag_project(project))
     if rag_root not in sys.path:
         sys.path.insert(0, rag_root)
-    from agent import ask
+    from app.services.rag_service import ask
     return ask
 
 

@@ -32,8 +32,12 @@ def apply_rag_prompt_version(version: str, project: str = "00") -> str:
     if rag_root not in sys.path:
         sys.path.insert(0, rag_root)
 
-    import prompts.rag_prompts as rag_prompts
-    import agent as rag_agent
+    if project in ("00", "project_00_rag_agent"):
+        import app.agent.prompts.rag_prompts as rag_prompts
+        import app.services.rag_service as rag_agent
+    else:
+        import prompts.rag_prompts as rag_prompts
+        import agent as rag_agent
 
     system_text = _wrap_v00_prompt(prompt_text) if project in ("00", "project_00_rag_agent") else prompt_text
     rag_prompts.RAG_SYSTEM = system_text

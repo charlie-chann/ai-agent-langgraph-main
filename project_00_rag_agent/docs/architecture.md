@@ -4,7 +4,7 @@
 
 > 生产级 RAG Agent：LangGraph + JWT/RBAC + Hybrid 检索 + 知识图谱 + HITL + Redis 缓存
 
-> **目录说明（2026 重构）**：代码收敛到 `app/` 分层；入口为 `main.py`（API）与 `app_ui.py`（Streamlit）。旧路径 `agent.py` / `tools/` / `prompts/` / `graph/` 保留为兼容 shim。详见下文「一、目录结构总览」。
+> **目录说明（2026 重构）**：代码收敛到 `app/` 分层；入口为 `main.py`（API）与 `app_ui.py`（Streamlit）。详见下文「一、目录结构总览」。
 
 ---
 
@@ -100,7 +100,6 @@ project_00_rag_agent/
 ├── main.py                      # ASGI 入口：create_app / 中间件 / include_router（uvicorn main:app）
 ├── app_ui.py                    # Streamlit UI（HTTP 客户端，仅经 FastAPI）
 ├── config.py                    # pydantic-settings 全量配置
-├── agent.py / tools/ / prompts/ / graph/   # 旧导入兼容 shim（eval 等）
 │
 ├── app/                         # 应用主包
 │   ├── api/                     # 【接口层】路由薄封装

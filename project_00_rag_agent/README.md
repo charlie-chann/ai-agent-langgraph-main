@@ -79,22 +79,82 @@ python eval/harness/run_eval.py --project 00 --prompt v2 --regression
 
 ```
 project_00_rag_agent/
-├── main.py              # ASGI 入口 (uvicorn main:app)
-├── app_ui.py            # Streamlit UI
-├── config.py            # 全局配置
-├── agent.py / tools/    # 旧导入兼容 shim（eval 等）
+│
+├── main.py
+├── app_ui.py
+├── config.py
+├── requirements.txt
+├── pyproject.toml
+├── Dockerfile
+├── docker-compose.yml
+├── README.md
+│
 ├── app/
-│   ├── api/             # 路由、deps、errors
-│   ├── schemas/         # Pydantic DTO
-│   ├── services/        # rag_service / warmup
-│   ├── agent/           # LangGraph + prompts
-│   ├── retrieval/       # ingest / retriever / KG
-│   ├── gateway/         # JWT / 限流 / request_id
-│   ├── infrastructure/  # DB / Redis cache / providers / metrics
-│   └── core/            # 超时、熔断、压缩、SSE
-├── docs/ 、scripts/ 、tests/ 、sample_docs/
-├── Dockerfile + docker-compose.yml
-└── requirements.txt
+│   ├── api/
+│   │   ├── deps.py
+│   │   ├── errors.py
+│   │   └── v1/
+│   │       ├── __init__.py
+│   │       ├── chat.py
+│   │       ├── ingest.py
+│   │       ├── hitl.py
+│   │       └── health.py
+│   ├── schemas/
+│   │   ├── chat.py
+│   │   ├── ingest.py
+│   │   ├── hitl.py
+│   │   └── common.py
+│   ├── services/
+│   │   ├── rag_service.py
+│   │   └── warmup_service.py
+│   ├── agent/
+│   │   ├── graph/
+│   │   │   ├── state.py
+│   │   │   ├── nodes.py
+│   │   │   ├── edges.py
+│   │   │   ├── builder.py
+│   │   │   └── checkpointer.py
+│   │   └── prompts/
+│   │       └── rag_prompts.py
+│   ├── retrieval/
+│   │   ├── retriever.py
+│   │   ├── ingest.py
+│   │   ├── conflict.py
+│   │   ├── knowledge_graph.py
+│   │   └── kg_extractor.py
+│   ├── gateway/
+│   │   ├── auth.py
+│   │   ├── rate_limit.py
+│   │   └── request_context.py
+│   ├── infrastructure/
+│   │   ├── persistence/
+│   │   │   ├── conversations.py
+│   │   │   └── stream_wal.py
+│   │   ├── providers/
+│   │   │   └── factory.py
+│   │   ├── cache/
+│   │   │   └── redis_cache.py
+│   │   └── observability/
+│   │       └── metrics.py
+│   └── core/
+│       ├── exceptions.py
+│       ├── timeouts.py
+│       ├── circuit_breaker.py
+│       ├── compression.py
+│       ├── streaming.py
+│       └── stream_sse.py
+│
+├── tests/
+│   ├── api/
+│   ├── services/
+│   ├── agent/
+│   └── retrieval/
+│
+├── docs/
+│   └── diagrams/
+│
+├── scripts/
+└── sample_docs/
 ```
 
 See [docs/architecture.md](docs/architecture.md) for HITL, KG, and Docker details.
