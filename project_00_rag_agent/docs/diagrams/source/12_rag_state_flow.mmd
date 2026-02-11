@@ -1,0 +1,28 @@
+flowchart LR
+    subgraph Input
+        Q[question]
+        H[chat_history]
+        R[user_roles]
+    end
+
+    subgraph AfterRetrieve
+        D[context_docs]
+        K[kg_context]
+        S[sources]
+        C[conflicts]
+    end
+
+    subgraph AfterGenerate
+        A[answer]
+        L[latency_ms]
+    end
+
+    subgraph AfterGrade
+        G[grade]
+        I[iterations++]
+    end
+
+    Q --> GUARD2[guard] --> RW[rewritten_question]
+    RW --> D & K & S & C
+    D & K & C --> A
+    A --> G --> I

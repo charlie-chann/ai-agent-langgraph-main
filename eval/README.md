@@ -1,6 +1,6 @@
 # Agent Eval 体系（7 步最小可用版）
 
-面向 `project_01_rag_agent`，实现：**评测集 → Prompt 版本化 → 批量跑 → 规则/Judge 打分 → trace 归因 → 回归门禁 → 单变量迭代**。
+面向 `project_01_rag_agent` 与 **`project_00_rag_agent`**，实现：**评测集 → Prompt 版本化 → 批量跑 → 规则/Judge 打分 → trace 归因 → 回归门禁 → 单变量迭代**。
 
 ## 目录
 
@@ -26,11 +26,15 @@ eval/
 ## 快速开始
 
 ```bash
-# 1. 确保 project_01 已 ingest 文档且 Ollama 在跑
-cd project_01_rag_agent && python -m tools.ingest  # 若尚未入库
+# 1. 确保 project_00 已 ingest 且 Ollama 在跑
+cd project_00_rag_agent
+python -c "from tools.ingest import ingest_files; print(ingest_files(['sample_docs/company_knowledge_base.txt']))"
 
-# 2. 跑 eval（Prompt v1）
-python eval/harness/run_eval.py --prompt v1
+# 2. 跑 eval（默认 project_00）
+python eval/harness/run_eval.py --project 00 --prompt v1
+
+# 3. 对比 project_01（legacy）
+python eval/harness/run_eval.py --project 01 --prompt v1
 
 # 3. 写入基线
 python eval/harness/run_eval.py --prompt v1 --update-baseline

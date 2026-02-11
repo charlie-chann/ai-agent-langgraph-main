@@ -1,0 +1,14 @@
+flowchart TD
+    LOGIN([POST /auth/token]) --> CHECK[DEMO_USERS_JSON 校验]
+    CHECK -->|失败| E401[401 Invalid credentials]
+    CHECK -->|成功| JWT[create_access_token<br/>sub + role + exp]
+
+    API([带 Token 的请求]) --> DECODE[decode_token HS256]
+    DECODE -->|无效| E401b[401]
+    DECODE --> PERM{require_permission}
+
+    PERM -->|chat| R1[admin/editor/viewer ✓]
+    PERM -->|ingest| R2[admin/editor ✓]
+    PERM -->|hitl_approve| R3[admin only ✓]
+    PERM -->|metrics| R4[admin only ✓]
+    PERM -->|health/stats| R5[admin/editor/viewer ✓]

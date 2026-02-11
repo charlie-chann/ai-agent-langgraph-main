@@ -1,0 +1,12 @@
+flowchart TD
+    START([resume_hitl thread_id]) --> SNAP[graph.get_state]
+    SNAP -->|无| ERR[No pending thread]
+    SNAP -->|有| APPROVE{approved?}
+
+    APPROVE -->|否| REJECT[update_state 拒答]
+    REJECT --> END1([返回 rejected])
+
+    APPROVE -->|是| UPDATE[update_state hitl_approved=true]
+    UPDATE --> RESUME[graph.invoke None 从 interrupt 继续]
+    RESUME --> FLOW[hitl_gate → rewrite → retrieve → generate → grade]
+    FLOW --> END2([返回完整 answer])

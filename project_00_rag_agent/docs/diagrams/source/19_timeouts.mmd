@@ -1,0 +1,4 @@
+flowchart LR
+    NODE[graph nodes _invoke_chain] --> TW[run_with_timeout ThreadPool]
+    TW -->|≤ llm_timeout 30s| OK[返回 LLM 结果]
+    TW -->|超时| E504[RAGTimeoutError → 节点兜底]

@@ -1,0 +1,21 @@
+flowchart TD
+    START([ingest_files]) --> LOAD[load_documents<br/>PDF/TXT/MD/DOCX]
+    LOAD --> META[metadata: source/doc_id/acl_roles/loaded_at]
+    META --> SPLIT[split_documents 512/64]
+    SPLIT --> VS[build_vectorstore → ChromaDB]
+    VS --> BM25[set_chunks + persist_bm25.pkl]
+
+    BM25 --> KG{KG_ENABLED?}
+    KG -->|是| EXTRACT[ingest_chunks_to_kg]
+    KG -->|否| DONE
+
+    subgraph KG_PIPE["KG 抽取"]
+        E1{KG_EXTRACTION_MODE}
+        E1 -->|rule| E2[规则：书名号/规定/日期]
+        E1 -->|llm| E3[LLM NER JSON 三元组]
+        E1 -->|hybrid| E2 & E3
+        E2 & E3 --> E4[去重 add_triple]
+        E4 --> E5[save graph.pkl + graph.json]
+    end
+
+    EXTRACT --> KG_PIPE --> DONE([返回统计 dict])

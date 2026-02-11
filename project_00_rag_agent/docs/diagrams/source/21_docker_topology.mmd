@@ -1,0 +1,9 @@
+flowchart TB
+    USER[浏览器 / curl] --> UI[rag-ui :8501 Streamlit]
+    USER --> API[rag-api :8000 FastAPI]
+
+    API --> OLL[ollama :11434]
+    API --> REDIS[redis :6379]
+    API --> PG[postgres :5432 checkpoint]
+    API --> VOL1[(chroma_db volume)]
+    API --> VOL2[(kg_store volume)]

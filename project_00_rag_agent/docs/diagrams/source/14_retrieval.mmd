@@ -1,0 +1,26 @@
+flowchart TD
+    Q([query + user_roles]) --> MODE{RETRIEVAL_MODE}
+
+    MODE -->|hybrid| HY[_hybrid_retrieve]
+    MODE -->|dense| DE[_dense_retrieve]
+    MODE -->|sparse| SP[_sparse_retrieve]
+
+    subgraph HYBRID["Hybrid 混合检索"]
+        H1[BM25 关键词召回] --> H3[加权融合 0.4/0.6]
+        H2[Chroma 向量召回] --> H3
+        H3 --> H4[doc_id 去重]
+    end
+
+    HY --> HYBRID
+    DE -->|失败| SP
+    SP -->|失败| DE
+
+    HYBRID & DE & SP --> ACL[_acl_filter<br/>user_roles ∩ doc.acl_roles]
+
+    ACL --> RER[rerank_docs Cross-Encoder]
+    RER -->|失败| FB[keyword overlap fallback]
+
+    FB --> KG{KG_ENABLED?}
+    KG -->|是| KGQ[get_kg.query → to_context]
+    KG -->|否| OUT
+    KGQ --> OUT([docs + kg_context])

@@ -1,0 +1,4 @@
+flowchart LR
+    BOOT([api lifespan]) --> S1[startup rebuild_bm25_from_chroma]
+    S1 --> S2[get_checkpointer setup Postgres]
+    S2 --> READY[服务就绪]

@@ -1,0 +1,9 @@
+flowchart LR
+    E1[加载 rag_v1/v2 Prompt] --> E2[注入 project_00 rag_prompts]
+    E2 --> E3[加载 rag_qa.jsonl]
+    E3 --> E4[循环 ask return_state=True]
+    E4 --> E5[规则分 + LLM Judge]
+    E5 --> E6[trace 归因]
+    E6 --> E7{--regression?}
+    E7 -->|是| E8[对比 baseline.json]
+    E7 -->|否| E9[写 results/]

@@ -1,0 +1,26 @@
+flowchart TD
+    REQ([HTTP Request]) --> SKIP{/health /ready<br/>/auth/token?}
+    SKIP -->|是| PASS[跳过限流]
+    SKIP -->|否| RL[rate_limit_middleware<br/>Redis/内存计数]
+
+    RL -->|超限| E429[429 Too Many Requests]
+    RL -->|OK| ROUTE{路由分发}
+
+    ROUTE --> AUTH_EP["/auth/token"]
+    ROUTE --> CHAT_EP["/chat /chat/stream"]
+    ROUTE --> INGEST_EP["/ingest"]
+    ROUTE --> HITL_EP["/hitl/resume"]
+    ROUTE --> OPS["/health /ready /stats /metrics"]
+
+    CHAT_EP --> JWT{Bearer Token?}
+    INGEST_EP --> JWT
+    HITL_EP --> JWT
+    OPS --> JWT2{需鉴权?}
+
+    JWT -->|无效| E401[401]
+    JWT -->|有效| RBAC{角色有 permission?}
+    RBAC -->|否| E403[403]
+    RBAC -->|是| HANDLER[业务 Handler]
+
+    HANDLER --> RID[new_request_id]
+    RID --> AGENT_CALL[调用 agent.py]

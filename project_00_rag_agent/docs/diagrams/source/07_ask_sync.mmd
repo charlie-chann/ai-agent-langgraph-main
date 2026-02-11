@@ -1,0 +1,16 @@
+flowchart TD
+    START([ask question]) --> COMPRESS[compress_chat_history<br/>滑动窗口 + token 预算]
+
+    COMPRESS --> CACHE{use_cache && Redis?}
+    CACHE -->|命中| RET_CACHED[返回 cached 结果]
+    CACHE -->|未命中| BUILD[_base_state<br/>question/roles/request_id/hitl]
+
+    BUILD --> CONFIG[configurable thread_id]
+    CONFIG --> INVOKE[get_graph.invoke]
+
+    INVOKE --> PACK[打包 result<br/>answer/sources/grade/hitl_pending/...]
+    PACK --> SAVE{可缓存?}
+    SAVE -->|是| CACHE_SET[cache_set]
+    SAVE -->|否| RETURN
+    CACHE_SET --> RETURN([返回 dict])
+    RET_CACHED --> RETURN

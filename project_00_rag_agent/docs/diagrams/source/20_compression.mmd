@@ -1,0 +1,9 @@
+flowchart TD
+    MSG[chat_history] --> KEEP[保留 system + pin + 最近 N 轮]
+    KEEP --> EST[估算 token]
+    EST --> OVER{> max_tokens?}
+    OVER -->|是| TRIM[丢弃最旧非 system 消息]
+    OVER -->|否| OUT1[压缩后 history]
+
+    CHUNKS[context_docs 按 rerank 序] --> BUDGET[trim_context_chunks<br/>RAG_CONTEXT_MAX_TOKENS=3000]
+    BUDGET --> OUT2[拼接 context 字符串]

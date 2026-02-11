@@ -1,0 +1,13 @@
+flowchart TD
+    CALL([get_chat_model / get_embeddings]) --> CB{Circuit Open?}
+    CB -->|是| E503[ServiceUnavailableError]
+    CB -->|否| PROV{LLM_PROVIDER / EMBEDDING_PROVIDER}
+
+    PROV -->|ollama| OLL[ChatOllama / OllamaEmbeddings]
+    PROV -->|openai| OAI[ChatOpenAI / OpenAIEmbeddings]
+
+    OLL & OAI -->|成功| OK[record_success]
+    OLL & OAI -->|失败| FAIL[record_failure]
+    FAIL --> TH{failures ≥ 5?}
+    TH -->|是| OPEN[熔断 OPEN 60s]
+    TH -->|否| RAISE[抛出异常]

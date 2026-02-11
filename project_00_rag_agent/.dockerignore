@@ -1,0 +1,9 @@
+__pycache__
+*.pyc
+.env
+chroma_db/
+kg_store/
+*.pkl
+.pytest_cache
+.mypy_cache
+sample_docs/

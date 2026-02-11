@@ -1,0 +1,56 @@
+flowchart TD
+    ENTRY([entry]) --> GUARD
+
+    subgraph GUARD["node_guard 安全门控"]
+        G1[检测 HITL 风险关键词] --> G2[LLM guard_prompt JSON]
+        G2 -->|blocked| G3[error=blocked 直接拒答]
+        G2 -->|pass| G4[继续]
+    end
+
+    GUARD --> ROUTE{route_after_guard}
+
+    ROUTE -->|blocked| END1([END])
+    ROUTE -->|hitl_required 且未批准| HITL
+
+    subgraph HITL["node_hitl_gate ⏸ interrupt_before"]
+        H1[设置 Awaiting approval]
+    end
+
+    HITL --> REWRITE
+    ROUTE -->|正常| REWRITE
+
+    subgraph REWRITE["node_rewrite 查询改写"]
+        RW1{iterations==0?}
+        RW1 -->|是| RW2[pass-through 原问题]
+        RW1 -->|否| RW3[LLM rewrite_prompt 改写]
+        RW3 -->|失败| RW2
+    end
+
+    REWRITE --> RETRIEVE
+
+    subgraph RETRIEVE["node_retrieve 检索"]
+        RT[retrieve_with_kg] --> CF[detect_conflicts]
+        CF --> FMT[format_conflicts 写入 state]
+    end
+
+    RETRIEVE --> GENERATE
+
+    subgraph GENERATE["node_generate 生成"]
+        GN1[trim_context_chunks] --> GN2[rag_prompt + kg + conflicts]
+        GN2 --> GN3[LLM 生成 answer]
+        GN3 -->|失败| GN4[降级：检索摘要]
+    end
+
+    GENERATE --> GRADE
+
+    subgraph GRADE["node_grade 质量评分"]
+        GR1[grade_prompt JSON score] --> GR2{parse 失败?}
+        GR2 -->|是| GR3[fail-open yes]
+        GR2 -->|否| GR4[score yes/no]
+        GR4 -->|no 且达上限| GR5[disclaimer 免责声明]
+    end
+
+    GRADE --> RETRY{should_retry}
+
+    RETRY -->|grade=no 且 iter<max| REWRITE
+    RETRY -->|否则| END2([END])

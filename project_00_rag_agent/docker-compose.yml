@@ -1,0 +1,93 @@
+# docker compose up -d --build
+# Pull models:
+#   docker compose exec ollama ollama pull qwen2.5:1.5b
+#   docker compose exec ollama ollama pull nomic-embed-text
+# Test:
+#   curl http://localhost:8000/health
+# UI: http://localhost:8501
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag00-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag00-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag00-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+      POSTGRES_DB: rag_checkpoint
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag_checkpoint"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rag-api:
+    build: .
+    image: rag00-agent:2.0
+    container_name: rag00-api
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_started
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://rag:rag@postgres:5432/rag_checkpoint
+      CHECKPOINTER_BACKEND: postgres
+      JWT_SECRET: docker-dev-secret-change-in-prod
+      CACHE_ENABLED: "true"
+      HITL_ENABLED: "true"
+      KG_ENABLED: "true"
+      KG_EXTRACTION_MODE: hybrid
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./kg_store:/app/kg_store
+      - rag_uploads:/tmp/rag_uploads_v2
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  rag-ui:
+    build: .
+    image: rag00-agent:2.0
+    container_name: rag00-ui
+    restart: unless-stopped
+    depends_on:
+      - rag-api
+    ports:
+      - "8501:8501"
+    environment:
+      API_BASE_URL: http://rag-api:8000
+    command: ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
+volumes:
+  ollama_data:
+  redis_data:
+  postgres_data:
+  rag_uploads:

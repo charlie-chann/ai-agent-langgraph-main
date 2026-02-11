@@ -1,0 +1,11 @@
+flowchart TD
+    START([ask_stream]) --> COMP[compress_chat_history]
+    COMP --> G1[node_guard]
+    G1 -->|blocked| OUT1[直接 yield 拒答]
+    G1 -->|ok| R1[node_rewrite]
+    R1 --> RET1[node_retrieve]
+    RET1 --> TRIM[trim_context_chunks token 预算]
+    TRIM --> STREAM["rag_prompt + LLM streaming<br/>逐 token yield"]
+    STREAM --> G2[node_generate 补全 state]
+    G2 --> GR[node_grade 质量评分]
+    GR --> META[yield __META__ JSON<br/>sources/latency/grade]

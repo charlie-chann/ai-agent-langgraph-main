@@ -1,0 +1,40 @@
+flowchart TD
+    START([用户打开 UI]) --> MODE{Use API backend?}
+
+    MODE -->|否 Local| ROLE[侧边栏选角色 admin/editor/viewer]
+    MODE -->|是 API| LOGIN[输入用户名密码]
+    LOGIN --> TOKEN[POST /auth/token 经 ② 网关]
+    TOKEN --> ROLE2[session 存 token + role]
+
+    ROLE --> SETTINGS[Runtime Settings<br/>Local 模式生效]
+    ROLE2 --> SETTINGS
+
+    SETTINGS --> INGEST{上传文档?}
+    INGEST -->|是 Local| ING_LOCAL[ingest_files 直连 ⑤ 工具层]
+    INGEST -->|是 API| ING_API[POST /ingest]
+    INGEST -->|否| CHAT
+
+    ING_API --> GW_ING["② 网关<br/>限流→JWT→RBAC"]
+    GW_ING --> ING_RUN[⑤ ingest_files]
+    ING_LOCAL --> CHAT
+    ING_RUN --> CHAT
+
+    CHAT[用户输入问题] --> CHATMODE{API 模式?}
+
+    CHATMODE -->|是| POST_CHAT[POST /chat]
+    POST_CHAT --> GW_CHAT["② 网关<br/>限流→JWT→RBAC→缓存"]
+    GW_CHAT --> AGENT["③ agent.ask"]
+    AGENT --> STACK["④ LangGraph → ⑤ Tools → ⑥ LLM/存储"]
+    STACK --> JSON[JSON 返回 ① UI]
+    JSON --> HITL{hitl_pending?}
+
+    CHATMODE -->|否| STREAM_LOCAL["③ ask_stream 直连<br/>跳过 ② 网关"]
+    STREAM_LOCAL --> STACK_LOCAL["④～⑥ 同栈"]
+    STACK_LOCAL --> SHOW
+
+    HITL -->|是| WARN[UI 显示等待审批]
+    HITL -->|否| SHOW[展示 answer + metadata]
+
+    WARN --> ADMIN{admin Approve?}
+    ADMIN -->|是| RESUME[POST /hitl/resume 经 ② 网关]
+    RESUME --> SHOW

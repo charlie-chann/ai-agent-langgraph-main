@@ -37,18 +37,22 @@ from eval.harness.regression import check_regression, load_baseline, save_baseli
 from eval.harness.trace_analysis import attribute_failure, build_trace, summarize_failures
 
 
-def _import_rag_ask():
-    from eval.harness.paths import RAG_PROJECT
-    rag_root = str(RAG_PROJECT)
+def _import_rag_ask(project: str):
+    from eval.harness.paths import resolve_rag_project
+    rag_root = str(resolve_rag_project(project))
     if rag_root not in sys.path:
         sys.path.insert(0, rag_root)
-    from agent import ask  # project_01_rag_agent/agent.py
+    from agent import ask
     return ask
 
 
-def run_case(case: dict, ask_fn, use_judge: bool) -> dict[str, Any]:
+def run_case(case: dict, ask_fn, use_judge: bool, project: str = "00") -> dict[str, Any]:
     t0 = time.perf_counter()
-    out = ask_fn(case["question"], return_state=True)
+    kwargs: dict = {"return_state": True}
+    if project == "00":
+        kwargs["use_cache"] = False
+        kwargs["user_roles"] = ["admin", "public"]
+    out = ask_fn(case["question"], **kwargs)
     latency_ms = round((time.perf_counter() - t0) * 1000)
 
     state = out.get("state") or {}
@@ -112,6 +116,7 @@ def summarize(rows: list[dict]) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run RAG eval harness")
+    parser.add_argument("--project", default="00", choices=["00", "01"], help="RAG 项目：00=production, 01=baseline")
     parser.add_argument("--dataset", default=str(DATASETS_DIR / "rag_qa.jsonl"))
     parser.add_argument("--prompt", default="v1", help="Prompt 版本：v1 / v2")
     parser.add_argument("--no-judge", action="store_true", help="跳过 LLM-as-Judge")
@@ -121,24 +126,25 @@ def main() -> int:
     args = parser.parse_args()
 
     # ── 步骤 2：加载 Prompt 版本 ──
-    prompt_text = apply_rag_prompt_version(args.prompt)
-    print(f"[prompt] loaded rag_{args.prompt}.txt")
+    prompt_text = apply_rag_prompt_version(args.prompt, project=args.project)
+    print(f"[prompt] loaded rag_{args.prompt}.txt for project_{args.project}")
 
     # ── 步骤 1：加载评测集 ──
     cases = load_dataset(Path(args.dataset))
     print(f"[dataset] {len(cases)} cases from {args.dataset}")
 
-    ask_fn = _import_rag_ask()
+    ask_fn = _import_rag_ask(args.project)
 
     # ── 步骤 3：批量跑 Agent ──
     rows: list[dict] = []
     for i, case in enumerate(cases, 1):
         print(f"[run] ({i}/{len(cases)}) {case['id']}: {case['question'][:40]}...")
-        rows.append(run_case(case, ask_fn, use_judge=not args.no_judge))
+        rows.append(run_case(case, ask_fn, use_judge=not args.no_judge, project=args.project))
 
     summary = summarize(rows)
     payload = {
         "suite": "rag_qa",
+        "project": args.project,
         "prompt_version": args.prompt,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "summary": summary,
@@ -147,7 +153,7 @@ def main() -> int:
     }
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = RESULTS_DIR / f"rag_{args.prompt}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    out_path = RESULTS_DIR / f"rag_p{args.project}_{args.prompt}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"[saved] {out_path}")
     print(f"[metrics] {json.dumps(summary['metrics'], ensure_ascii=False)}")

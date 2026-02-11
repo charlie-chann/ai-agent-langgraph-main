@@ -1,0 +1,10 @@
+flowchart TD
+    INGEST([ingest chunk]) --> EXT[kg_extractor hybrid]
+    EXT --> ADD[KnowledgeGraph.add_triple]
+    ADD --> SAVE[pkl + json 持久化]
+
+    QUERY([用户 question]) --> TOK[token 重叠打分]
+    TOK --> SUB{中文子串匹配?}
+    SUB --> TOP[top_k 三元组]
+    TOP --> CTX[to_context 证据链文本]
+    CTX --> PROMPT[注入 rag_prompt kg_context]

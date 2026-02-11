@@ -1,0 +1,14 @@
+flowchart TD
+    COMPILE[build_rag_graph] --> CP{CHECKPOINTER_BACKEND}
+    CP -->|postgres| PG[PostgresSaver.setup]
+    CP -->|memory/fallback| MEM[MemorySaver]
+
+    PG & MEM --> INT[interrupt_before hitl_gate]
+
+    INT --> RUN[graph.invoke thread_id]
+    RUN -->|命中 HITL| PAUSE[图暂停 状态持久化到 PG]
+    PAUSE --> WAIT[API 返回 hitl_pending=true]
+
+    WAIT --> ADMIN[admin POST /hitl/resume]
+    ADMIN --> RESUME[update_state + invoke None]
+    RESUME --> CONTINUE[继续 rewrite→...→END]

@@ -1,0 +1,9 @@
+flowchart TD
+    DOCS[检索到的 context_docs] --> GROUP[按 topic/首行分组]
+    GROUP --> MULTI{同组 ≥2 条?}
+    MULTI -->|否| SKIP[跳过]
+    MULTI -->|是| DIFF{内容不同?}
+    DIFF -->|否| SKIP
+    DIFF -->|是| PRI[_meta_priority<br/>policy>faq, 新日期优先]
+    PRI --> OUT[ConflictItem + resolution_hint]
+    OUT --> FMT[format_conflicts 注入 Prompt]

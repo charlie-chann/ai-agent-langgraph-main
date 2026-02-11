@@ -1,0 +1,59 @@
+flowchart TB
+    subgraph L1["① 客户端层 Client"]
+        ST[Streamlit app.py]
+        CLI[curl / SDK / Eval Harness]
+    end
+
+    subgraph L2["② 网关层 Gateway"]
+        API[api.py FastAPI]
+        AUTH[JWT + RBAC]
+        RL[Rate Limit]
+        CACHE[Redis Cache]
+        RID[request_id]
+    end
+
+    subgraph L3["③ 编排层 Orchestration"]
+        AGENT[agent.py]
+        COMP[compression 压缩]
+    end
+
+    subgraph L4["④ 图引擎层 LangGraph"]
+        GRAPH[guard→hitl→rewrite→retrieve→generate→grade]
+        CP[Checkpointer Postgres/Memory]
+    end
+
+    subgraph L5["⑤ 工具层 Tools"]
+        RET[retriever 混合检索]
+        ING[ingest 入库]
+        KG[knowledge_graph]
+        CONF[conflict 冲突]
+    end
+
+    subgraph L6["⑥ 基础设施层 Infrastructure"]
+        PROV[Provider Ollama/OpenAI]
+        CB[Circuit Breaker]
+        CHROMA[(ChromaDB)]
+        BM25[(BM25 pickle)]
+        KGSTORE[(KG pkl/json)]
+        REDIS[(Redis)]
+        PG[(Postgres checkpoint)]
+    end
+
+  ST -->|API 模式 HTTP| API
+  ST -.->|Local 模式 进程内直连| AGENT
+  CLI --> API
+  API --> AUTH --> RL --> CACHE --> RID
+  RID --> AGENT --> COMP --> GRAPH
+  GRAPH --> CP
+  GRAPH --> RET
+  GRAPH --> ING
+  RET --> KG
+  RET --> CONF
+  RET --> PROV
+  ING --> PROV
+  RET --> CB
+  ING --> CB
+  RET --> CHROMA & BM25
+  KG --> KGSTORE
+  CACHE --> REDIS
+  CP --> PG
