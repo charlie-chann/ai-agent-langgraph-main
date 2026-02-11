@@ -8,7 +8,7 @@
 
 ## 〇、全项目端到端总览（图 `00`）
 
-**一张图串起**全栈主路径；**细节一律见分图**（如 `rate_limit · 详图 06`）。不展开节点内部，与 `07`/`08` 同级精度。
+**一张图串起**全栈主路径；**细节一律见分图**。`cache` 判断、`invoke`/`astream` 内部步骤**只在 `07`/`08` 展开**，`00` 不重复画菱形。
 
 ![全项目端到端总览](./diagrams/00_project_end_to_end.png)
 
@@ -45,22 +45,20 @@ flowchart TD
     CHAT["②网关层 读 history<br/>详图 22 · ⑥PG"] --> SCH0
 
     subgraph SCH["③ 调度层 · 详图 07–10"]
-        SCH0["compress · 详图 20"] --> CACHE{"cache · 详图 06 · ⑥Redis"}
-        CACHE -->|命中| CACHED([cached])
-        CACHE -->|未命中| DRV{流式?}
-        DRV -->|否| INV["invoke · 详图 07"]
-        DRV -->|是| AST["astream · 详图 08"]
+        SCH0["compress · 详图 20"] --> DRV{流式?}
+        DRV -->|否| INV["ask · 详图 07"]
+        DRV -->|是| AST["ask_stream · 详图 08"]
     end
-
-    INV --> EXEC_NODE
-    AST --> EXEC_NODE
 
     subgraph EXEC["④ 执行层 · 详图 11–13"]
         EXEC_NODE["LangGraph 全图<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
     end
 
-    EXEC --> PACK["③调度层 打包 · cache_set? · 06"]
-    CACHED --> PACK
+    INV -.->|cache 命中| PACK
+    INV -->|未命中| EXEC_NODE
+    AST -.->|cache 命中| PACK
+    AST -->|未命中| EXEC_NODE
+    EXEC_NODE --> PACK["③调度层 打包"]
 
     PACK --> DB["②网关层 落库 · 详图 22 · ⑥PG"]
     DB --> OUT
@@ -76,8 +74,7 @@ flowchart TD
 
     UI -.->|hitl_pending| HITL_BOX
 
-    %% 六层：①客户端 ②网关层 ③调度层(07–10) ④执行层(11–13) ⑤工具层(14–17) ⑥基础设施(18–21)
-```
+    %% cache 判断仅在 07/08 详图；00 虚线表示命中短路，不重复画菱形```
 
 </details>
 
