@@ -21,11 +21,11 @@ def _collect_stream(gen):
 
 
 class TestAskStreamAlignment:
-    @patch("app.services.rag_service.compress_chat_history")
-    @patch("app.services.rag_service.cache_get")
-    @patch("app.services.rag_service._astream_rag_graph")
+    @patch("app.services.agent_service.compress_chat_history")
+    @patch("app.services.agent_service.cache_get")
+    @patch("app.services.agent_service._astream_rag_graph")
     def test_cache_hit_skips_astream_and_compress(self, mock_astream, mock_cache_get, mock_compress):
-        from app.services.rag_service import ask_stream
+        from app.services.agent_service import ask_stream
 
         mock_cache_get.return_value = {
             "answer": "cached answer",
@@ -44,11 +44,11 @@ class TestAskStreamAlignment:
         mock_astream.assert_not_called()
         mock_compress.assert_not_called()
 
-    @patch("app.services.rag_service.compress_chat_history")
-    @patch("app.services.rag_service.cache_set")
-    @patch("app.services.rag_service.cache_get", return_value=None)
+    @patch("app.services.agent_service.compress_chat_history")
+    @patch("app.services.agent_service.cache_set")
+    @patch("app.services.agent_service.cache_get", return_value=None)
     def test_miss_uses_astream_and_caches(self, _mock_cache_get, mock_cache_set, mock_compress):
-        from app.services.rag_service import ask_stream
+        from app.services.agent_service import ask_stream
 
         mock_compress.return_value = []
 
@@ -63,7 +63,7 @@ class TestAskStreamAlignment:
             sink["effective_thread"] = "conv-2"
             yield "fresh answer"
 
-        with patch("app.services.rag_service._astream_rag_graph", side_effect=fake_astream):
+        with patch("app.services.agent_service._astream_rag_graph", side_effect=fake_astream):
             answer, meta = _collect_stream(
                 ask_stream(
                     "q",
@@ -81,10 +81,10 @@ class TestAskStreamAlignment:
         mock_cache_set.assert_called_once()
         mock_compress.assert_called_once()
 
-    @patch("app.services.rag_service.cache_set")
-    @patch("app.services.rag_service.cache_get", return_value=None)
+    @patch("app.services.agent_service.cache_set")
+    @patch("app.services.agent_service.cache_get", return_value=None)
     def test_hitl_pending_does_not_cache(self, _mock_cache_get, mock_cache_set):
-        from app.services.rag_service import ask_stream
+        from app.services.agent_service import ask_stream
 
         async def fake_astream(*_args, sink, **_kwargs):
             sink["state"] = {
@@ -98,7 +98,7 @@ class TestAskStreamAlignment:
             sink["effective_thread"] = "conv-3"
             yield "Awaiting human approval for high-risk query."
 
-        with patch("app.services.rag_service._astream_rag_graph", side_effect=fake_astream):
+        with patch("app.services.agent_service._astream_rag_graph", side_effect=fake_astream):
             _answer, meta = _collect_stream(
                 ask_stream("delete all data", [], conversation_id="conv-3", use_cache=True)
             )
@@ -109,10 +109,10 @@ class TestAskStreamAlignment:
 
 @pytest.mark.asyncio
 class TestAskStreamAsync:
-    @patch("app.services.rag_service.compress_chat_history")
-    @patch("app.services.rag_service.cache_get", return_value=None)
+    @patch("app.services.agent_service.compress_chat_history")
+    @patch("app.services.agent_service.cache_get", return_value=None)
     async def test_ask_stream_async_direct(self, mock_cache_get, mock_compress):
-        from app.services.rag_service import ask_stream_async
+        from app.services.agent_service import ask_stream_async
 
         mock_compress.return_value = []
 
@@ -122,7 +122,7 @@ class TestAskStreamAsync:
             yield "a"
             yield "sync"
 
-        with patch("app.services.rag_service._astream_rag_graph", side_effect=fake_astream):
+        with patch("app.services.agent_service._astream_rag_graph", side_effect=fake_astream):
             tokens = []
             meta = None
             async for token in ask_stream_async("q", [], conversation_id="c1"):
@@ -135,10 +135,10 @@ class TestAskStreamAsync:
         assert meta["answer"] == "async"
         mock_compress.assert_called_once()
 
-    @patch("app.services.rag_service.compress_chat_history")
-    @patch("app.services.rag_service.cache_get")
+    @patch("app.services.agent_service.compress_chat_history")
+    @patch("app.services.agent_service.cache_get")
     async def test_cache_hit_skips_history_loader(self, mock_cache_get, mock_compress):
-        from app.services.rag_service import ask_stream_async
+        from app.services.agent_service import ask_stream_async
 
         mock_cache_get.return_value = {"answer": "hit", "grade": "yes", "request_id": "r1"}
         loader_called = False

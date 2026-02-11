@@ -22,7 +22,7 @@ from typing import List, Optional
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 
 
 def _estimate_tokens(text: str) -> int:

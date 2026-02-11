@@ -104,7 +104,7 @@ project_00_rag_agent/
 ├── app/                         # 应用主包
 │   ├── api/                     # 【接口层】路由薄封装
 │   │   ├── deps.py              # 公共 Depends
-│   │   ├── errors.py            # RAGError → HTTP
+│   │   ├── errors.py            # AgentError → HTTP
 │   │   └── v1/
 │   │       ├── chat.py          # 会话 / chat / stream
 │   │       ├── ingest.py        # /ingest
@@ -112,12 +112,13 @@ project_00_rag_agent/
 │   │       └── health.py        # auth / health / ready / stats / metrics
 │   ├── schemas/                 # Pydantic DTO
 │   ├── services/
-│   │   ├── rag_service.py       # ask / ask_stream / resume_hitl（原根目录 agent.py）
+│   │   ├── agent_service.py       # ask / ask_stream / resume_hitl（原根目录 agent.py）
 │   │   └── warmup_service.py    # 启动预热 BM25
 │   ├── agent/                   # LangGraph 领域
 │   │   ├── graph/               # state / nodes / edges / builder / checkpointer
-│   │   └── prompts/rag_prompts.py
-│   ├── retrieval/               # 原 tools/：retriever / ingest / KG / conflict
+│   │   └── prompts/rag.py
+│   ├── knowledge/               # 知识库基建：retriever / ingest / KG / conflict
+│   ├── tools/                   # Agent @tool：供 ReAct / bind_tools 调用
 │   ├── gateway/                 # 鉴权 / 限流 / request_id（原 middleware 网关部分）
 │   ├── infrastructure/
 │   │   ├── persistence/         # conversations / stream_wal（原 storage/）
@@ -126,7 +127,7 @@ project_00_rag_agent/
 │   │   └── observability/metrics.py
 │   └── core/                    # compression / timeouts / circuit_breaker / streaming / SSE
 │
-├── tests/{api,services,agent,retrieval}/
+├── tests/{api,services,agent,knowledge,tools}/
 ├── sample_docs/
 ├── scripts/
 ├── Dockerfile + docker-compose.yml
@@ -162,7 +163,7 @@ flowchart TB
     end
 
     subgraph L3["③ 调度层 Scheduling · 详图 07–10"]
-        AGENT[app/services/rag_service.py]
+        AGENT[app/services/agent_service.py]
         COMP[compression 压缩]
     end
 
@@ -219,9 +220,10 @@ flowchart TB
 | **全栈** | 端到端主路径 + ingest + HITL 汇总 | 全文 | **〇** | **`00` 全项目总览** |
 | **① 客户端** | 收集输入、展示结果；经 HTTP 调用网关 | `app_ui.py`, eval harness | **三** | `02` UI 全栈路径、`03` Eval |
 | **② 网关层** | 鉴权、限流、答案缓存、request_id；**会话 history 从 Postgres 加载** | `main.py`, `app/api/*`, `app/gateway/*` + `app/infrastructure/cache`, `app/infrastructure/persistence/conversations.py` | **四** | `04`–`06`、`22` 会话存储 |
-| **③ 调度层** | 压缩历史、查答案缓存、组装 state、调用 LangGraph | `app/services/rag_service.py` | **五** | **`07`–`10`** ask / stream / HITL / startup |
+| **③ 调度层** | 压缩历史、查答案缓存、组装 state、调用 LangGraph | `app/services/agent_service.py` | **五** | **`07`–`10`** ask / stream / HITL / startup |
 | **④ 执行层** | guard/HITL/改写/检索/生成/评分的有状态工作流 | `app/agent/graph/*` | **六** | **`11`–`13`** 主图 / State / Checkpointer |
-| **⑤ 工具层** | 入库、混合检索、KG、冲突检测 | `app/retrieval/*` | **七** | **`14`–`17`** 检索 / ingest / 冲突 / KG |
+| **⑤ 知识基建层** | 入库、混合检索、KG、冲突检测（非 @tool） | `app/knowledge/*` | **七** | **`14`–`17`** 检索 / ingest / 冲突 / KG |
+| **⑤′ Agent 工具层** | LangChain `@tool`，供 ReAct / `bind_tools` 调用 | `app/tools/*` | **七** | 薄封装 knowledge，可扩展 HTTP/计算等 |
 | **⑥ 基础设施** | 模型调用、熔断、超时、持久化存储 | `app/infrastructure/providers/`, `app/core/`, `app/infrastructure/persistence/`, 磁盘/Redis/PG | **八** | **`18`–`21`** 熔断 / 超时 / 压缩 / Docker |
 
 **客户端路径**：Streamlit / curl / SDK 均经 **② 网关层** → ③ → ④ → ⑤ → ⑥ → 响应回 UI。
@@ -288,7 +290,7 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    E1[加载 rag_v1/v2 Prompt] --> E2[注入 project_00 rag_prompts]
+    E1[加载 rag_v1/v2 Prompt] --> E2[注入 project_00 rag]
     E2 --> E3[加载 rag_qa.jsonl]
     E3 --> E4[循环 ask return_state=True]
     E4 --> E5[规则分 + LLM Judge]
@@ -430,7 +432,7 @@ flowchart TD
 
 ---
 
-## 五、层 3：调度层（`app/services/rag_service.py`）
+## 五、层 3：调度层（`app/services/agent_service.py`）
 
 **读图说明**：每个节点前缀 **层号+层名**（如 `②网关层`、`③调度层`）；`↳` 表示该步调用的下层 **⑤工具层 / ⑥基础设施** 及 **详图编号**。
 
@@ -682,9 +684,9 @@ rewrite → retrieve → generate → grade ─┬─ no 且 iter<max → rewrit
                                        └─ 否则 ───────────→ END
 ```
 
-### 6.2 RAGState 字段流转
+### 6.2 RagState 字段流转
 
-![RAGState 字段流转](./diagrams/12_rag_state_flow.png)
+![RagState 字段流转](./diagrams/12_rag_state_flow.png)
 
 <details>
 <summary>查看 Mermaid 源码（可编辑后运行 scripts/render_diagrams.py 重新出图）</summary>
@@ -722,7 +724,7 @@ flowchart LR
 
 </details>
 
-**RAGState 字段分组（`app/agent/graph/state.py`）：**
+**RagState 字段分组（`app/agent/graphs/rag/state.py`）：**
 
 | 分组 | 字段 | 说明 |
 |------|------|------|
@@ -762,7 +764,7 @@ flowchart TD
 
 ## 七、层 5：工具层（Tools）
 
-### 7.1 检索全流程（`app/retrieval/retriever.py`）
+### 7.1 检索全流程（`app/knowledge/retriever.py`）
 
 ![检索全流程](./diagrams/14_retrieval.png)
 
@@ -800,7 +802,7 @@ flowchart TD
 
 </details>
 
-### 7.2 入库全流程（`app/retrieval/ingest.py`）
+### 7.2 入库全流程（`app/knowledge/ingest.py`）
 
 ![入库全流程](./diagrams/15_ingest.png)
 
@@ -833,7 +835,7 @@ flowchart TD
 
 </details>
 
-### 7.3 冲突检测（`app/retrieval/conflict.py`）
+### 7.3 冲突检测（`app/knowledge/conflict.py`）
 
 ![冲突检测](./diagrams/16_conflict.png)
 
@@ -854,7 +856,7 @@ flowchart TD
 
 </details>
 
-### 7.4 知识图谱（`app/retrieval/knowledge_graph.py` + `kg_extractor.py`）
+### 7.4 知识图谱（`app/knowledge/knowledge_graph.py` + `kg_extractor.py`）
 
 ![知识图谱](./diagrams/17_knowledge_graph.png)
 
@@ -1058,7 +1060,7 @@ python eval/harness/run_eval.py --project 00 --prompt v2 --regression
 
 | 能力 | project_01 | project_00 |
 |------|-----------|------------|
-| 目录结构 | 扁平 `api/agent/tools/...` | `app/` 分层（api / services / agent / retrieval / gateway / infrastructure / core） |
+| 目录结构 | 扁平 `api/agent/tools/...` | `app/` 分层（api / services / agent / knowledge / tools / gateway / infrastructure / core） |
 | Provider | 仅 Ollama | Ollama / OpenAI 可切换 |
 | 鉴权 | 无 | JWT + RBAC |
 | 缓存/限流 | 无 | Redis 答案缓存 + 限流（history 不在 Redis） |
@@ -1074,4 +1076,4 @@ python eval/harness/run_eval.py --project 00 --prompt v2 --regression
 
 ## 十二、一句话串起来（面试可背）
 
-> **Client** 持 `conversation_id` 调 **main.py / app/api**（JWT + 限流）→ **DB 加载 chat_history** → **rag_service** 压缩历史 + 查**答案**缓存 → **LangGraph**（guard → 可选 HITL → rewrite → hybrid 检索 + ACL + KG → generate → grade）→ **落库 user/assistant 消息** → 返回答案；**ingest** 写 Chroma + BM25 + KG；**Redis** 只缓存答案与限流，不存聊天记录。入口：`uvicorn main:app`，UI：`streamlit run app_ui.py`。
+> **Client** 持 `conversation_id` 调 **main.py / app/api**（JWT + 限流）→ **DB 加载 chat_history** → **agent_service** 压缩历史 + 查**答案**缓存 → **LangGraph**（guard → 可选 HITL → rewrite → hybrid 检索 + ACL + KG → generate → grade）→ **落库 user/assistant 消息** → 返回答案；**ingest** 写 Chroma + BM25 + KG；**Redis** 只缓存答案与限流，不存聊天记录。入口：`uvicorn main:app`，UI：`streamlit run app_ui.py`。

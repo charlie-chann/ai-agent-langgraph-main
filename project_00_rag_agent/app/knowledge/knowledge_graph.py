@@ -1,5 +1,5 @@
 """
-tools/knowledge_graph.py — 知识图谱：实体/关系存储与证据链检索
+knowledge/knowledge_graph.py — 知识图谱：实体/关系存储与证据链检索
 
 【职责】
 1. 从文档 chunk 中抽取 (subject, predicate, object) 三元组
@@ -24,7 +24,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from langchain_core.documents import Document
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 
 # ── 规则抽取用的模式与关系词表 ────────────────────────────────────────────────
 # 生产环境可替换为 spaCy/HanLP/专用 NER 模型
@@ -117,12 +117,16 @@ class KnowledgeGraph:
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "KnowledgeGraph":
-        """从 pickle 加载；文件不存在时返回空图。"""
+        """从 pickle 加载；文件不存在或损坏时返回空图。"""
         path = path or settings.kg_dir / "graph.pkl"
         if not path.exists():
             return cls()
-        with open(path, "rb") as f:
-            kg = pickle.load(f)
+        try:
+            with open(path, "rb") as f:
+                kg = pickle.load(f)
+        except (EOFError, pickle.UnpicklingError, ModuleNotFoundError) as e:
+            logger.warning(f"KG load failed ({e}), using empty graph")
+            return cls()
         logger.info(f"KG loaded: {len(kg.triples)} triples")
         return kg
 
@@ -183,7 +187,7 @@ def ingest_chunks_to_kg(chunks: List[Document]) -> int:
     Returns:
         本次新增三元组条数（含重复写入前的计数，非去重后净增）
     """
-    from app.retrieval.kg_extractor import extract_triples_hybrid
+    from app.knowledge.kg_extractor import extract_triples_hybrid
 
     kg = get_kg()
     count = 0

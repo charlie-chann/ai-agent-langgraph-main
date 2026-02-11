@@ -45,7 +45,7 @@ TITLES = [
     "HITL resume",
     "启动预热",
     "LangGraph 主图",
-    "RAGState 字段流转",
+    "RagState 字段流转",
     "Checkpointer + HITL",
     "检索全流程",
     "入库全流程",

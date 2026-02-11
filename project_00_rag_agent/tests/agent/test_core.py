@@ -55,7 +55,7 @@ class TestAuth:
 
 class TestKnowledgeGraph:
     def setup_method(self):
-        self.mod = _load("app.retrieval.knowledge_graph", "app/retrieval/knowledge_graph.py")
+        self.mod = _load("app.knowledge.knowledge_graph", "app/knowledge/knowledge_graph.py")
 
     def test_extract_triples(self):
         from langchain_core.documents import Document
@@ -75,7 +75,7 @@ class TestKnowledgeGraph:
 
 class TestIngestValidation:
     def setup_method(self):
-        self.mod = _load("ingest", "app/retrieval/ingest.py")
+        self.mod = _load("ingest", "app/knowledge/ingest.py")
 
     def test_sanitize_filename(self):
         assert ".." not in self.mod.sanitize_filename("../../etc/passwd")

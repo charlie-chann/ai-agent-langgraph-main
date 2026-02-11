@@ -1,5 +1,5 @@
 """
-tools/retriever.py — 生产级混合检索 + ACL + 知识图谱 + 降级兜底
+knowledge/retriever.py — 生产级混合检索 + ACL + 知识图谱 + 降级兜底
 
 【职责】
 1. 管理 ChromaDB 向量库（持久化，语义检索）
@@ -28,10 +28,10 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from loguru import logger
 
-from config import settings, CHROMA_DIR, COLLECTION_NAME, TOP_K, RETRIEVAL_MODE, RERANK_ENABLED, RERANK_MODEL
+from app.core.config import settings, CHROMA_DIR, COLLECTION_NAME, TOP_K, RETRIEVAL_MODE, RERANK_ENABLED, RERANK_MODEL
 from app.core.circuit_breaker import embed_breaker
 from app.infrastructure.providers.factory import get_embeddings
-from app.retrieval.knowledge_graph import get_kg
+from app.knowledge.knowledge_graph import get_kg
 
 # ── 进程级全局缓存 ────────────────────────────────────────────────────────────
 # ChromaDB 数据在 chroma_db/ 目录，重启后仍可加载；

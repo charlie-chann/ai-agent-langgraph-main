@@ -10,7 +10,7 @@ from app.gateway.request_context import get_request_id
 from app.infrastructure.observability.metrics import snapshot
 from app.schemas.common import TokenRequest
 from app.services.health_service import get_readiness
-from app.services.rag_service import get_stats
+from app.services.agent_service import get_stats
 
 router = APIRouter(tags=["health"])
 

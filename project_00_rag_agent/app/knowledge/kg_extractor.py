@@ -1,5 +1,5 @@
 """
-tools/kg_extractor.py — 基于 LLM 的 NER + 关系抽取（知识图谱增强）
+knowledge/kg_extractor.py — 基于 LLM 的 NER + 关系抽取（知识图谱增强）
 
 【职责】
 1. 调用 Chat LLM 从 chunk 文本中抽取结构化三元组 JSON
@@ -21,10 +21,10 @@ from typing import List
 from langchain_core.documents import Document
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 from app.core.timeouts import run_with_timeout
 from app.infrastructure.providers.factory import get_chat_model
-from app.retrieval.knowledge_graph import Triple
+from app.knowledge.knowledge_graph import Triple
 
 # LLM 抽取用的 Prompt 模板；要求仅返回 JSON 数组，便于正则 + json.loads 解析
 EXTRACT_PROMPT = """Extract entities and relations from the text below.

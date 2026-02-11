@@ -33,8 +33,8 @@ def apply_rag_prompt_version(version: str, project: str = "00") -> str:
         sys.path.insert(0, rag_root)
 
     if project in ("00", "project_00_rag_agent"):
-        import app.agent.prompts.rag_prompts as rag_prompts
-        import app.services.rag_service as rag_agent
+        import app.agent.prompts.rag as rag_prompts
+        import app.services.agent_service as rag_agent
     else:
         import prompts.rag_prompts as rag_prompts
         import agent as rag_agent
@@ -50,5 +50,5 @@ def apply_rag_prompt_version(version: str, project: str = "00") -> str:
         ("human", "{question}"),
     ])
 
-    rag_agent.reset_graph()
+    rag_agent.reset_graph("rag")
     return prompt_text

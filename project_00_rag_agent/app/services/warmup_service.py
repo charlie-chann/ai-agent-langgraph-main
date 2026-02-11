@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from loguru import logger
 
-from app.agent.graph.checkpointer import get_checkpointer
+from app.agent.checkpointer import get_checkpointer
 from app.infrastructure.persistence.conversations import get_conversation_store
-from app.retrieval.retriever import rebuild_bm25_from_chroma
+from app.knowledge.retriever import rebuild_bm25_from_chroma
 
 
 def warmup() -> int:

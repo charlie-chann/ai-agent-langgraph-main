@@ -7,9 +7,8 @@ from typing import List
 from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.api.deps import TokenPayload, require_permission
-from app.retrieval.ingest import sanitize_filename, validate_upload
 from app.schemas.ingest import IngestResponse
-from app.services.ingest_service import ingest_paths
+from app.services.ingest_service import ingest_paths, save_upload
 
 router = APIRouter(tags=["ingest"])
 
@@ -20,15 +19,10 @@ async def ingest(
     user: TokenPayload = Depends(require_permission("ingest")),
 ):
     tmp_dir = Path("/tmp/rag_uploads_v2")
-    tmp_dir.mkdir(exist_ok=True)
     saved = []
     for f in files:
         content = await f.read()
-        validate_upload(f.filename or "upload.txt", len(content))
-        safe_name = sanitize_filename(f.filename or "upload.txt")
-        dest = tmp_dir / safe_name
-        dest.write_bytes(content)
-        saved.append(dest)
+        saved.append(save_upload(f.filename or "upload.txt", content, tmp_dir))
 
     result = ingest_paths(saved, acl_roles=[user.role, "public"])
     return IngestResponse(

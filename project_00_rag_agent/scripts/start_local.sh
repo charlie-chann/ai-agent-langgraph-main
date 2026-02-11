@@ -22,8 +22,8 @@ fi
 echo "==> 4. 入库样例文档（若 chroma 为空）"
 python - <<'PY'
 from pathlib import Path
-from app.retrieval.retriever import get_vectorstore
-from app.retrieval.ingest import ingest_files
+from app.knowledge.retriever import get_vectorstore
+from app.knowledge.ingest import ingest_files
 
 try:
     n = get_vectorstore()._collection.count()

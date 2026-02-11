@@ -10,7 +10,7 @@ from app.core.exceptions import NotFoundError
 from app.gateway.request_context import new_request_id
 from app.infrastructure.observability.metrics import inc
 from app.infrastructure.persistence.conversations import get_conversation_store, messages_as_chat_history
-from app.services.rag_service import ask, get_cached_ask
+from app.services.agent_service import ask, get_cached_ask
 
 _ASSISTANT_META_KEYS = (
     "sources",
@@ -71,6 +71,7 @@ def run_chat(
     message: str,
     hitl_approved: bool,
     use_cache: bool,
+    agent_mode: str = "rag",
 ) -> dict:
     store = get_conversation_store()
     new_request_id()
@@ -83,6 +84,7 @@ def run_chat(
         user_roles=user_roles,
         conversation_id=conversation_id,
         use_cache=use_cache,
+        agent_mode=agent_mode,
     )
     if cached is not None:
         store.append_message(conversation_id, "user", message)
@@ -111,6 +113,7 @@ def run_chat(
         conversation_id=conversation_id,
         hitl_approved=hitl_approved,
         use_cache=use_cache,
+        agent_mode=agent_mode,
     )
 
     store.append_message(conversation_id, "user", message)

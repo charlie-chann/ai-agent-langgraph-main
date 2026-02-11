@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from langgraph.graph import END
 
-from config import settings
-from app.agent.graph.state import RAGState
+from app.core.config import settings
+from app.agent.graphs.rag.state import RagState
 
 
-def route_after_guard(state: RAGState) -> str:
+def route_after_guard(state: RagState) -> str:
     """
     guard 节点之后的条件路由。
 
@@ -33,7 +33,7 @@ def route_after_guard(state: RAGState) -> str:
     return "rewrite"
 
 
-def should_retry(state: RAGState) -> str:
+def should_retry(state: RagState) -> str:
     """
     grade 节点之后的条件路由：决定是否进入 Agentic 重试循环。
 

@@ -1,5 +1,5 @@
 """
-tools/conflict.py — 文档冲突检测（metadata + 内容对比）
+knowledge/conflict.py — 文档冲突检测（metadata + 内容对比）
 
 【职责】
 1. 对检索到的多个 chunk 按「主题」分组，发现同一主题下内容不一致的情况

@@ -59,12 +59,12 @@ class TestModelRouting:
             assert _resolve_model("aux", None) == "small"
             assert _resolve_model("generate", None) == "large"
 
-    @patch("app.agent.graph.nodes.get_chat_model")
+    @patch("app.agent.graphs.rag.nodes.get_chat_model")
     def test_invoke_chain_uses_aux_role(self, mock_get):
         mock_llm = mock_get.return_value
-        with patch("app.agent.graph.nodes.run_with_timeout", return_value=type("R", (), {"content": '{"blocked": false}'})()):
-            from app.agent.graph.nodes import _invoke_chain
-            from app.agent.prompts.rag_prompts import guard_prompt
+        with patch("app.agent.graphs.rag.nodes.run_with_timeout", return_value=type("R", (), {"content": '{"blocked": false}'})()):
+            from app.agent.graphs.rag.nodes import _invoke_chain
+            from app.agent.prompts.rag import guard_prompt
 
             _invoke_chain(guard_prompt, {"question": "hi"}, label="guard")
         mock_get.assert_called_with(role="aux")

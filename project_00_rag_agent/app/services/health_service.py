@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from app.core.circuit_breaker import embed_breaker, llm_breaker
 from app.infrastructure.persistence.conversations import get_conversation_store
-from app.retrieval.retriever import get_vectorstore
+from app.knowledge.retriever import get_vectorstore
 
 
 def get_readiness() -> tuple[int, dict]:

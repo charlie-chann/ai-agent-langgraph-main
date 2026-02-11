@@ -12,7 +12,7 @@ import asyncio
 import json
 from typing import AsyncGenerator, Optional
 
-from config import settings
+from app.core.config import settings
 from app.core.streaming import CancelToken
 from app.infrastructure.persistence.stream_wal import StreamEvent, get_stream_status, read_events
 

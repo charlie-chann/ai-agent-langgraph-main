@@ -82,12 +82,7 @@ project_00_rag_agent/
 │
 ├── main.py
 ├── app_ui.py
-├── config.py
-├── requirements.txt
-├── pyproject.toml
-├── Dockerfile
-├── docker-compose.yml
-├── README.md
+├── config.py                        # 兼容 shim → app.core.config
 │
 ├── app/
 │   ├── api/
@@ -105,23 +100,31 @@ project_00_rag_agent/
 │   │   ├── hitl.py
 │   │   └── common.py
 │   ├── services/
-│   │   ├── rag_service.py
+│   │   ├── agent_service.py
+│   │   ├── chat_service.py
+│   │   ├── stream_service.py
+│   │   ├── ingest_service.py
+│   │   ├── health_service.py
+│   │   ├── hitl_service.py
 │   │   └── warmup_service.py
 │   ├── agent/
-│   │   ├── graph/
-│   │   │   ├── state.py
-│   │   │   ├── nodes.py
-│   │   │   ├── edges.py
-│   │   │   ├── builder.py
-│   │   │   └── checkpointer.py
+│   │   ├── factory.py
+│   │   ├── checkpointer.py
+│   │   ├── graphs/
+│   │   │   ├── rag/
+│   │   │   └── react/
 │   │   └── prompts/
-│   │       └── rag_prompts.py
-│   ├── retrieval/
+│   │       ├── rag.py
+│   │       └── react.py
+│   ├── knowledge/                   # 知识库基建：入库、检索、KG、冲突
 │   │   ├── retriever.py
 │   │   ├── ingest.py
 │   │   ├── conflict.py
 │   │   ├── knowledge_graph.py
 │   │   └── kg_extractor.py
+│   ├── tools/                       # Agent 可调用 @tool（ReAct / bind_tools）
+│   │   ├── registry.py
+│   │   └── knowledge.py
 │   ├── gateway/
 │   │   ├── auth.py
 │   │   ├── rate_limit.py
@@ -137,6 +140,7 @@ project_00_rag_agent/
 │   │   └── observability/
 │   │       └── metrics.py
 │   └── core/
+│       ├── config.py                # 全局配置（权威位置）
 │       ├── exceptions.py
 │       ├── timeouts.py
 │       ├── circuit_breaker.py
@@ -148,7 +152,8 @@ project_00_rag_agent/
 │   ├── api/
 │   ├── services/
 │   ├── agent/
-│   └── retrieval/
+│   ├── knowledge/
+│   └── tools/
 │
 ├── docs/
 │   └── diagrams/

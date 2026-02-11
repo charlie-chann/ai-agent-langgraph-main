@@ -24,7 +24,7 @@ from typing import Any, Iterator, List, Optional
 
 from loguru import logger
 
-from config import PROJECT_ROOT, settings
+from app.core.config import PROJECT_ROOT, settings
 
 _store: Optional["ConversationStore"] = None
 _store_lock = Lock()

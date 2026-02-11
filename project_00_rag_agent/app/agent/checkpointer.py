@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 
 _checkpointer = None  # 全局 checkpointer 单例
 

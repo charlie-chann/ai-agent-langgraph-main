@@ -25,7 +25,7 @@ from typing import Optional
 from fastapi import HTTPException, Request, status
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 
 # 懒加载 Redis；False 表示连接失败，后续走内存限流
 _redis_client = None

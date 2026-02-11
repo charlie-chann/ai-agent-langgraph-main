@@ -26,7 +26,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 
 # 懒加载 Redis 客户端；None=未初始化，False=连接失败哨兵
 _redis_client = None
@@ -69,7 +69,7 @@ def cache_key(prefix: str, payload: dict) -> str:
     """
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
-    return f"rag:{prefix}:{digest}"
+    return f"{settings.cache_namespace}:{prefix}:{digest}"
 
 
 def cache_get(key: str) -> Optional[Any]:

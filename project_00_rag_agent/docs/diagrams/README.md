@@ -2,7 +2,7 @@
 
 本目录包含 `architecture.md` 中全部 **23 张**流程图的 PNG 导出（含 `00` 总览与 `01`–`22`）。
 
-> 代码目录已迁至 `app/` 分层（`main.py` + `app/api` / `services` / `agent` / `retrieval` / `gateway` / `infrastructure` / `core`）。图中模块名与 `architecture.md`、`source/*.mmd` 已对齐。
+> 代码目录：`app/knowledge`（知识基建）+ `app/tools`（Agent @tool）+ `app/api` / `services` / `agent` / `gateway` / `infrastructure` / `core`。
 
 | 文件 | 说明 |
 |------|------|

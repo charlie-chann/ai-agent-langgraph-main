@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from app.infrastructure.persistence.conversations import get_conversation_store
-from app.services.rag_service import resume_hitl
+from app.services.agent_service import resume_hitl
 
 
 def resume_hitl_conversation(thread_id: str, *, approved: bool, user_sub: str) -> dict:

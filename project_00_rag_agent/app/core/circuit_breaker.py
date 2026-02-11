@@ -21,7 +21,7 @@ from threading import Lock
 
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 
 
 @dataclass

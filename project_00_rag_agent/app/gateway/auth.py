@@ -29,7 +29,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-from config import settings
+from app.core.config import settings
 
 # HTTP Bearer 提取器：从 Authorization: Bearer <token> 头中解析凭证
 # auto_error=False 表示无 token 时不自动 403，由业务逻辑决定如何处理

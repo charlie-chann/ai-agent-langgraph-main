@@ -12,7 +12,7 @@ import asyncio
 import time
 from typing import AsyncGenerator, AsyncIterator, Optional
 
-from config import settings
+from app.core.config import settings
 
 
 class CancelToken:

@@ -6,7 +6,7 @@ graph/nodes.py — LangGraph 节点实现
 
 【设计原因】
 1. 一节点一函数：与 LangGraph add_node 一一对应，职责单一、便于单测与替换
-2. 节点只读写 RAGState：不持有全局可变状态，图编译后可并发 invoke（不同 thread_id）
+2. 节点只读写 RagState：不持有全局可变状态，图编译后可并发 invoke（不同 thread_id）
 3. LLM 调用统一走 _invoke_chain + run_with_timeout：超时与熔断策略集中，避免各节点重复封装
 4. fail-open / fail-safe 分层：guard/grade 解析失败时默认放行；retrieve/generate 失败时写入 error 或降级摘要
 """
@@ -20,14 +20,14 @@ from typing import List
 from langchain_core.messages import AIMessage
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 from app.core.compression import trim_context_chunks
 from app.core.timeouts import run_with_timeout
-from app.agent.graph.state import RAGState
-from app.agent.prompts.rag_prompts import grade_prompt, guard_prompt, rag_prompt, rewrite_prompt
+from app.agent.graphs.rag.state import RagState
+from app.agent.prompts.rag import grade_prompt, guard_prompt, rag_prompt, rewrite_prompt
 from app.infrastructure.providers.factory import ModelRole, get_chat_model
-from app.retrieval.conflict import detect_conflicts, format_conflicts
-from app.retrieval.retriever import retrieve_with_kg
+from app.knowledge.conflict import detect_conflicts, format_conflicts
+from app.knowledge.retriever import retrieve_with_kg
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -49,7 +49,7 @@ def _invoke_chain(prompt, inputs: dict, *, label: str, role: ModelRole = "aux") 
 # LangGraph 节点 — 每个函数是一个「处理步骤」
 # ══════════════════════════════════════════════════════════════════════════════
 
-def node_guard(state: RAGState) -> RAGState:
+def node_guard(state: RagState) -> RagState:
     """
     节点 0：入口安全守卫 + HITL 风险标记。
 
@@ -78,7 +78,7 @@ def node_guard(state: RAGState) -> RAGState:
     return state
 
 
-def node_rewrite(state: RAGState) -> RAGState:
+def node_rewrite(state: RagState) -> RagState:
     """
     节点 1：查询改写。
 
@@ -98,7 +98,7 @@ def node_rewrite(state: RAGState) -> RAGState:
     return state
 
 
-def node_retrieve(state: RAGState) -> RAGState:
+def node_retrieve(state: RagState) -> RagState:
     """
     节点 2：混合检索 + 知识图谱 + 冲突检测。
 
@@ -128,7 +128,7 @@ def node_retrieve(state: RAGState) -> RAGState:
     return state
 
 
-def node_generate(state: RAGState) -> RAGState:
+def node_generate(state: RagState) -> RagState:
     """
     节点 3：基于检索上下文 + KG + 冲突摘要生成回答。
 
@@ -184,7 +184,7 @@ def node_generate(state: RAGState) -> RAGState:
     return state
 
 
-def node_grade(state: RAGState) -> RAGState:
+def node_grade(state: RagState) -> RagState:
     """
     节点 4：答案质量评分（Agentic RAG 自校正环节）。
 
@@ -220,7 +220,7 @@ def node_grade(state: RAGState) -> RAGState:
     return state
 
 
-def node_hitl_gate(state: RAGState) -> RAGState:
+def node_hitl_gate(state: RagState) -> RagState:
     """
     节点 HITL：高风险查询的人工审批门控（骨架实现）。
 

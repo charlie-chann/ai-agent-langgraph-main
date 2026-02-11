@@ -1,20 +1,7 @@
 """
-rag_service.py — RAG 问答用例编排（原根目录 agent.py）
+agent_service.py — 通用 Agent 用例编排（rag / react 等多模式）
 
-【职责】
-封装 LangGraph RAG 工作流的同步/流式问答入口，以及 HITL 恢复、运行态统计；
-供 services/api 层、测试脚本、外部服务调用。
-
-【设计原因】
-1. 与 app/agent/graph 分层：图构建与节点逻辑在 agent 包，本模块只做「组装 + 缓存 + 返回格式」
-2. ask() 使用 LangGraph invoke；ask_stream() 使用 astream（updates + custom token）
-3. ask_stream() 与 ask() 共用 Redis 缓存与全图能力（含 grade 重试、HITL）；先 cache_get，未命中再压缩历史
-4. Redis 缓存键按 question + roles 去重，HITL 中断或出错时不写缓存，避免脏数据
-
-【与 project_01 差异】
-- project_01 的 agent.py 内联了 LangGraph 节点与 build_rag_graph；本模块仅调用 graph.builder
-- 新增：RBAC user_roles、HITL resume_hitl、Redis 缓存、request_id 追踪、
-  对话历史压缩、KG/冲突/disclaimer 等扩展字段
+封装 LangGraph 同步/流式问答、HITL 恢复、运行态统计；供 services/api 调用。
 """
 from __future__ import annotations
 
@@ -24,16 +11,16 @@ import json
 import time
 from typing import AsyncGenerator, Callable, Generator, List, Optional
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from loguru import logger
 
-from config import settings
-from app.core.compression import compress_chat_history, dict_history_to_messages
+from app.core.config import settings
+from app.agent.factory import get_graph, normalize_agent_mode, reset_graph, supported_modes
+from app.agent.graphs.rag.state import RagState
+from app.core.compression import compress_chat_history
 from app.core.streaming import CancelToken, batched_tokens
-from app.agent.graph.builder import get_graph, reset_graph
-from app.agent.graph.state import RAGState
-from app.infrastructure.cache.redis_cache import cache_get, cache_key, cache_set
 from app.gateway.request_context import get_request_id, new_request_id
+from app.infrastructure.cache.redis_cache import cache_get, cache_key, cache_set
 from app.infrastructure.persistence.stream_wal import append_event, begin_stream, finalize_stream
 
 
@@ -43,7 +30,7 @@ def _base_state(
     user_roles: Optional[List[str]] = None,
     thread_id: Optional[str] = None,
     hitl_approved: bool = False,
-) -> RAGState:
+) -> RagState:
     """
     构造 LangGraph 初始状态字典。
 
@@ -73,9 +60,14 @@ def _cache_key_for_ask(
     user_roles: Optional[List[str]],
     chat_history: Optional[List[BaseMessage]] = None,
     conversation_id: Optional[str] = None,
+    agent_mode: Optional[str] = None,
 ) -> str:
-    """多轮会话下缓存键需含会话或历史摘要，避免不同上下文误命中。"""
-    payload: dict = {"q": question, "roles": user_roles}
+    """多轮会话下缓存键需含会话、模式或历史摘要，避免误命中。"""
+    payload: dict = {
+        "q": question,
+        "roles": user_roles,
+        "mode": normalize_agent_mode(agent_mode),
+    }
     if conversation_id:
         payload["conv"] = conversation_id
     elif chat_history:
@@ -90,6 +82,7 @@ def get_cached_ask(
     conversation_id: Optional[str] = None,
     chat_history: Optional[List[BaseMessage]] = None,
     use_cache: bool = True,
+    agent_mode: Optional[str] = None,
 ) -> Optional[dict]:
     """
     仅查 Redis 答案缓存，不压缩历史、不跑 LangGraph。
@@ -98,7 +91,7 @@ def get_cached_ask(
     """
     if not use_cache or not settings.cache_enabled:
         return None
-    ck = _cache_key_for_ask(question, user_roles, chat_history, conversation_id)
+    ck = _cache_key_for_ask(question, user_roles, chat_history, conversation_id, agent_mode)
     cached = cache_get(ck)
     if not cached:
         return None
@@ -119,7 +112,7 @@ def _resolve_history(
 
 
 def _result_from_state(
-    state: RAGState,
+    state: RagState,
     *,
     conversation_id: Optional[str],
     effective_thread: str,
@@ -151,17 +144,54 @@ def _invoke_rag_graph(
     thread_id: Optional[str],
     conversation_id: Optional[str],
     hitl_approved: bool,
-) -> tuple[RAGState, str]:
+) -> tuple[RagState, str]:
     effective_thread = thread_id or conversation_id or get_request_id()
     config = {"configurable": {"thread_id": effective_thread}}
-    state = get_graph().invoke(
+    state = get_graph("rag").invoke(
         _base_state(question, history, user_roles, thread_id, hitl_approved),
         config=config,
     )
     return state, effective_thread
 
 
-def _maybe_cache_result(ck: str, result: dict, state: RAGState, *, use_cache: bool) -> None:
+def _extract_ai_answer(messages: list) -> str:
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage):
+            content = msg.content
+            if content:
+                return content if isinstance(content, str) else str(content)
+    return ""
+
+
+def _invoke_react_graph(
+    question: str,
+    history: List[BaseMessage],
+    *,
+    thread_id: Optional[str],
+    conversation_id: Optional[str],
+) -> tuple[dict, str]:
+    effective_thread = thread_id or conversation_id or get_request_id()
+    config = {"configurable": {"thread_id": effective_thread}}
+    messages = list(history) + [HumanMessage(content=question)]
+    t0 = time.perf_counter()
+    result = get_graph("react").invoke({"messages": messages}, config=config)
+    answer = _extract_ai_answer(result.get("messages", []))
+    return {
+        "answer": answer,
+        "sources": [],
+        "latency_ms": round((time.perf_counter() - t0) * 1000),
+        "iterations": 1,
+        "grade": "n/a",
+        "error": None,
+        "disclaimer": "",
+        "conflicts": "",
+        "request_id": get_request_id() or new_request_id(),
+        "hitl_pending": False,
+        "agent_mode": "react",
+    }, effective_thread
+
+
+def _maybe_cache_result(ck: str, result: dict, state: RagState, *, use_cache: bool) -> None:
     if use_cache and not result.get("hitl_pending") and not state.get("error"):
         cache_set(ck, result)
 
@@ -213,25 +243,38 @@ def ask(
     hitl_approved: bool = False,
     use_cache: bool = True,
     return_state: bool = False,
+    agent_mode: Optional[str] = None,
 ) -> dict:
-    """
-    同步问答：跑完整个 LangGraph（含 guard、可能的重试循环与 HITL），返回结构化结果。
-
-    流程：查 Redis 缓存 →（未命中）压缩历史 → invoke 图 → 组装 answer/sources 等字段；
-    HITL 待审批或出错时不写入缓存。
-    """
-    ck = _cache_key_for_ask(question, user_roles, chat_history, conversation_id)
+    """同步问答：按 agent_mode 路由到 rag 或 react 图。"""
+    mode = normalize_agent_mode(agent_mode)
+    ck = _cache_key_for_ask(question, user_roles, chat_history, conversation_id, mode)
     cached = get_cached_ask(
         question,
         user_roles=user_roles,
         conversation_id=conversation_id,
         chat_history=chat_history,
         use_cache=use_cache,
+        agent_mode=mode,
     )
     if cached:
         return cached
 
     history = compress_chat_history(chat_history or [])
+
+    if mode == "react":
+        react_result, effective_thread = _invoke_react_graph(
+            question,
+            history,
+            thread_id=thread_id,
+            conversation_id=conversation_id,
+        )
+        react_result["thread_id"] = effective_thread
+        react_result["conversation_id"] = conversation_id
+        react_result["agent_mode"] = mode
+        if use_cache and react_result.get("answer"):
+            cache_set(ck, react_result)
+        return react_result
+
     state, effective_thread = _invoke_rag_graph(
         question,
         history,
@@ -245,6 +288,7 @@ def ask(
         conversation_id=conversation_id,
         effective_thread=effective_thread,
     )
+    result["agent_mode"] = mode
     _maybe_cache_result(ck, result, state, use_cache=use_cache)
     if return_state:
         result["state"] = state
@@ -258,7 +302,7 @@ def resume_hitl(thread_id: str, approved: bool = True) -> dict:
     approved=False 时直接写入拒绝文案并结束；True 时更新 hitl_approved 再 invoke(None) 从断点继续。
     """
     config = {"configurable": {"thread_id": thread_id}}
-    graph = get_graph()
+    graph = get_graph("rag")
     snapshot = graph.get_state(config)
     if not snapshot or not snapshot.values:
         return {"error": "No pending thread", "thread_id": thread_id}
@@ -279,7 +323,7 @@ def resume_hitl(thread_id: str, approved: bool = True) -> dict:
     }
 
 
-def _merge_graph_update(merged: RAGState, chunk: dict) -> tuple[str, RAGState]:
+def _merge_graph_update(merged: RagState, chunk: dict) -> tuple[str, RagState]:
     """合并 astream updates 单步，返回 (node_name, merged_state)。"""
     node_name = next(iter(chunk))
     merged.update(chunk[node_name])
@@ -302,12 +346,12 @@ async def _astream_rag_graph(
 
     grade 将重试时丢弃本轮已缓冲 token，仅 flush 最终一轮生成内容。
     """
-    graph = get_graph()
+    graph = get_graph("rag")
     effective_thread = thread_id or conversation_id or get_request_id()
     config = {"configurable": {"thread_id": effective_thread}}
     initial = _base_state(question, history, user_roles, thread_id, hitl_approved)
 
-    merged: RAGState = dict(initial)
+    merged: RagState = dict(initial)
     token_buffer: list[str] = []
     streamed_any = False
 
@@ -371,6 +415,7 @@ async def _produce_stream_to_wal(
     hitl_approved: bool,
     use_cache: bool,
     cancel: CancelToken,
+    agent_mode: Optional[str] = None,
 ) -> None:
     """
     后台任务：跑完 ask_stream_async 逻辑并将 token/meta 写入 WAL。
@@ -389,6 +434,7 @@ async def _produce_stream_to_wal(
                 hitl_approved=hitl_approved,
                 use_cache=use_cache,
                 cancel=cancel,
+                agent_mode=agent_mode,
             ),
             cancel=cancel,
         ):
@@ -419,9 +465,11 @@ async def _raw_token_stream(
     hitl_approved: bool,
     use_cache: bool,
     cancel: Optional[CancelToken],
+    agent_mode: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """内部 token 源（含 cache 命中路径），供 WAL 生产者与 ask_stream_async 共用。"""
-    ck = _cache_key_for_ask(question, user_roles, history, conversation_id)
+    mode = normalize_agent_mode(agent_mode)
+    ck = _cache_key_for_ask(question, user_roles, history, conversation_id, mode)
     t0 = time.perf_counter()
 
     cached = get_cached_ask(
@@ -430,6 +478,7 @@ async def _raw_token_stream(
         conversation_id=conversation_id,
         chat_history=history,
         use_cache=use_cache,
+        agent_mode=mode,
     )
     if cached:
         cached.setdefault("latency_ms", 0)
@@ -442,6 +491,26 @@ async def _raw_token_stream(
 
     raw_history = _resolve_history(history, history_loader)
     history = compress_chat_history(raw_history)
+
+    if mode == "react":
+        react_result, effective_thread = _invoke_react_graph(
+            question,
+            history,
+            thread_id=thread_id,
+            conversation_id=conversation_id,
+        )
+        react_result["thread_id"] = effective_thread
+        react_result["conversation_id"] = conversation_id
+        react_result["agent_mode"] = mode
+        for chunk in _iter_answer_chunks(react_result.get("answer", ""), settings.stream_flush_chars):
+            if cancel and cancel.is_cancelled:
+                return
+            yield chunk
+        if use_cache and react_result.get("answer"):
+            cache_set(ck, react_result)
+        yield f"\n\n__META__{json.dumps(_meta_payload(react_result), ensure_ascii=False)}"
+        return
+
     sink: dict = {}
     async for token in _astream_rag_graph(
         question,
@@ -497,6 +566,7 @@ async def start_wal_stream_producer(
     user_roles: Optional[List[str]],
     hitl_approved: bool,
     use_cache: bool,
+    agent_mode: Optional[str] = None,
 ) -> CancelToken:
     """启动后台 WAL 生产者；若已有同 stream_id 任务在跑则复用。"""
     existing = get_stream_task(stream_id)
@@ -522,6 +592,7 @@ async def start_wal_stream_producer(
             hitl_approved=hitl_approved,
             use_cache=use_cache,
             cancel=cancel,
+            agent_mode=agent_mode,
         )
     )
     register_stream_task(stream_id, task)
@@ -540,6 +611,7 @@ async def ask_stream_async(
     use_cache: bool = True,
     stream_chunk_chars: Optional[int] = None,
     cancel: Optional[CancelToken] = None,
+    agent_mode: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     流式问答：先查 Redis；未命中再加载/压缩历史并 graph.astream 跑全图。
@@ -558,6 +630,7 @@ async def ask_stream_async(
             hitl_approved=hitl_approved,
             use_cache=use_cache,
             cancel=cancel,
+            agent_mode=agent_mode,
         ),
         flush_chars=flush_chars,
         cancel=cancel,
@@ -576,6 +649,7 @@ def ask_stream(
     hitl_approved: bool = False,
     use_cache: bool = True,
     stream_chunk_chars: int = 12,
+    agent_mode: Optional[str] = None,
 ) -> Generator[str, None, None]:
     """同步包装：供 Streamlit / 同步调用方使用 ask_stream_async。"""
     import asyncio
@@ -591,6 +665,7 @@ def ask_stream(
             hitl_approved=hitl_approved,
             use_cache=use_cache,
             stream_chunk_chars=stream_chunk_chars,
+            agent_mode=agent_mode,
         ):
             yield item
 
@@ -618,8 +693,8 @@ def get_stats() -> dict:
     """
     返回当前检索层与熔断器运行态，便于 /health 或监控面板展示。
     """
-    from app.retrieval.knowledge_graph import get_kg
-    from app.retrieval.retriever import _chunks, get_vectorstore
+    from app.knowledge.knowledge_graph import get_kg
+    from app.knowledge.retriever import _chunks, get_vectorstore
     from app.core.circuit_breaker import llm_breaker, embed_breaker
 
     try:
@@ -632,6 +707,8 @@ def get_stats() -> dict:
         "bm25_chunks": len(_chunks),
         "kg_triples": len(get_kg().triples),
         "retrieval_mode": settings.retrieval_mode,
+        "default_agent_mode": settings.default_agent_mode,
+        "supported_agent_modes": supported_modes(),
         "llm_provider": settings.llm_provider,
         "model_routing": routing_status(),
         "stream_resume_enabled": settings.stream_resume_enabled,

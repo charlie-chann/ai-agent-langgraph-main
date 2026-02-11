@@ -21,7 +21,7 @@ from typing import Any, List, Literal, Optional
 
 from loguru import logger
 
-from config import settings
+from app.core.config import settings
 
 StreamStatus = Literal["running", "complete", "error", "cancelled"]
 

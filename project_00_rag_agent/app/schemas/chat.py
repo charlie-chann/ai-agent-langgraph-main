@@ -1,9 +1,11 @@
 """对话与会话相关 Schema。"""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+AgentType = Literal["rag", "react"]
 
 
 class CreateConversationRequest(BaseModel):
@@ -23,12 +25,14 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = None
     hitl_approved: bool = False
     use_cache: bool = True
+    agent_type: AgentType = Field(default="rag", description="Agent 执行模式：rag | react")
 
 
 class ConversationChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     hitl_approved: bool = False
     use_cache: bool = True
+    agent_type: AgentType = Field(default="rag", description="Agent 执行模式：rag | react")
     stream_id: Optional[str] = Field(
         default=None,
         description="续推已有流；与 Last-Event-ID 配合使用",

@@ -17,7 +17,7 @@ from typing import Literal, Optional
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from config import settings
+from app.core.config import settings
 from app.core.circuit_breaker import embed_breaker, llm_breaker
 from app.core.exceptions import ServiceUnavailableError
 

@@ -1,5 +1,5 @@
 """
-tools/ingest.py — 安全文档摄入流水线（含 KG 抽取）
+knowledge/ingest.py — 安全文档摄入流水线（含 KG 抽取）
 
 【职责】
 把用户上传的原始文件（PDF/TXT/MD/DOCX）转化为可检索的向量索引，并可选写入知识图谱。
@@ -28,9 +28,9 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
 
-from config import settings, CHUNK_SIZE, CHUNK_OVERLAP
-from app.retrieval.knowledge_graph import ingest_chunks_to_kg
-from app.retrieval.retriever import build_vectorstore, get_vectorstore, set_chunks
+from app.core.config import settings, CHUNK_SIZE, CHUNK_OVERLAP
+from app.knowledge.knowledge_graph import ingest_chunks_to_kg
+from app.knowledge.retriever import build_vectorstore, get_vectorstore, set_chunks
 
 # 文件扩展名 → Loader 类 的映射表
 # 新增格式时只需在此注册，无需改 load_documents 主逻辑

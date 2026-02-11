@@ -28,7 +28,7 @@ eval/
 ```bash
 # 1. 确保 project_00 已 ingest 且 Ollama 在跑
 cd project_00_rag_agent
-python -c "from app.retrieval.ingest import ingest_files; print(ingest_files(['sample_docs/company_knowledge_base.txt']))"
+python -c "from app.knowledge.ingest import ingest_files; print(ingest_files(['sample_docs/company_knowledge_base.txt']))"
 
 # 2. 跑 eval（默认 project_00）
 python eval/harness/run_eval.py --project 00 --prompt v1
