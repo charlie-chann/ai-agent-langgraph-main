@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "ai-agent-langchain-main"
+name = "ai-agent-langgraph-main"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
