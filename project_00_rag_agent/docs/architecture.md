@@ -313,6 +313,8 @@ flowchart LR
 
 ## 四、层 2：网关层（`api.py` + `middleware/`）
 
+**读图说明**：`04` 是网关总览；**限流见 `06`**、**JWT/RBAC 见 `05`**。答案缓存在 `api` 中间件里不展开，由 **③调度层** 在 `07`/`08` 里 `cache_get/set`（`06`）；ingest 成功后 **②网关层** 调 `cache_delete_prefix`（`06`）。
+
 ### 4.1 请求总入口（所有 HTTP 请求）
 
 ![HTTP 网关入口](./diagrams/04_http_gateway.png)
@@ -322,12 +324,12 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    REQ([HTTP Request]) --> SKIP{/health /ready<br/>/auth/token /metrics?}
+    REQ(["②网关层 HTTP Request<br/>详图 04"]) --> SKIP{/health /ready<br/>/auth/token /metrics?}
     SKIP -->|是| PASS[跳过限流]
-    SKIP -->|否| RL[rate_limit_middleware]
+    SKIP -->|否| RL["②网关层 rate_limit_middleware<br/>详图 06 · ⑥Redis"]
 
     PASS --> ROUTE
-    RL -->|超限| E429[429]
+    RL -->|超限| E429[429 · 详图 06]
     RL -->|OK| ROUTE{api.py 路由}
 
     ROUTE --> AUTH["/auth/token"]
@@ -337,7 +339,7 @@ flowchart TD
     ROUTE --> OPS_PUB["/health /ready"]
     ROUTE --> OPS_AUTH["/stats /metrics"]
 
-    AUTH --> H1[login → JWT]
+    AUTH --> H1["login → JWT<br/>详图 05"]
 
     CHAT --> JWT
     INGEST --> JWT
@@ -346,21 +348,23 @@ flowchart TD
 
     OPS_PUB --> H_OPS[health / ready]
 
-    JWT{Bearer + RBAC?}
+    JWT{"②网关层 Bearer + RBAC<br/>详图 05"}
     JWT -->|401/403| ERR[拒绝]
     JWT -->|通过| H2[Handler]
 
-    H2 --> T1["聊天 → 见 07 图"]
-    H2 --> T2[ingest → ingest_files]
-    H2 --> T3[hitl → resume_hitl]
+    H2 --> T1["聊天 → 详图 07/08<br/>↳ 答案 cache · 详图 06"]
+    H2 --> T2["ingest → 详图 15<br/>↳ 清 cache · 详图 06"]
+    H2 --> T3["hitl → 详图 09"]
     H2 --> T4[stats / metrics]
 
-    T1 --> OUT([JSON 响应])
+    T1 --> OUT([JSON / SSE 响应])
     T2 --> OUT
     T3 --> OUT
     T4 --> OUT
     H1 --> OUT
     H_OPS --> OUT
+
+    %% ②网关层总览：限流·06 → 鉴权·05 → 路由 Handler；答案缓存在 07/08 调度层调用
 ```
 
 </details>
