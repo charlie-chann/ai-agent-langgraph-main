@@ -5,7 +5,7 @@ import time
 from typing import TypedDict, Annotated, Sequence
 import operator
 
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import StateGraph, END
@@ -161,13 +161,17 @@ def build_graph() -> StateGraph:
     graph.add_node("synthesize", node_synthesize_report)
 
     graph.set_entry_point("plan_and_act")
+    # 节点判断：根据 LLM 输出决定走 tools 还是 synthesize
     graph.add_conditional_edges("plan_and_act", _should_continue, {
         "tools": "tools",
         "synthesize": "synthesize",
     })
+    # 固定边：工具执行完后，无条件回到 plan_and_act 继续思考（ReAct 循环）
     graph.add_edge("tools", "plan_and_act")
+    # 固定边：报告生成完毕后，流程结束
     graph.add_edge("synthesize", END)
 
+    # 编译图，返回可 invoke/stream 的对象（此时尚未执行任何节点）
     return graph.compile()
 
 
