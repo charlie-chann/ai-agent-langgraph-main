@@ -2,14 +2,14 @@
 memory.py — 多轮对话记忆管理
 
 【职责】
-1. ConversationMemory：单会话的消息存储（user/ai/tool 三种角色）
-2. MemoryStore：多 session 管理，支持并发、容量淘汰、历史截断
+1. ConversationMemory:单会话的消息存储(user/ai/tool 三种角色）
+2. MemoryStore:多 session 管理，支持并发、容量淘汰、历史截断
 3. 提供 LangChain Message 格式转换，供 agent 直接注入上下文
 
 【设计原因】
 1. ReAct Agent 默认无记忆，多轮对话需自行维护 chat_history
-2. 内存存储适合 demo；生产可替换为 Redis / DB，接口不变
-3. 线程锁 RLock：Streamlit / FastAPI 并发请求时保证 session 安全
+2. 内存存储适合 demo:生产可替换为 Redis / DB:接口不变
+3. 线程锁 RLock:Streamlit / FastAPI 并发请求时保证 session 安全
 """
 from typing import List, Dict, Optional
 from datetime import datetime
