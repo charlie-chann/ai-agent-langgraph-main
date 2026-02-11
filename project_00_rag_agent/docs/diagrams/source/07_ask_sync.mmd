@@ -1,19 +1,23 @@
 flowchart TD
-    START([POST /conversations/id/chat<br/>仅 message + conversation_id]) --> LOAD[storage: list_messages<br/>PostgreSQL / SQLite 降级]
-    LOAD --> DICT[dict_history_to_messages]
-    DICT --> COMPRESS[compress_chat_history<br/>裁历史，不裁 question]
+    START(["api._run_chat()<br/>来自 04 网关聊天 Handler"]) --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
+    LOAD --> RID[new_request_id + metrics]
 
-    COMPRESS --> CACHE{use_cache && Redis?<br/>key 含 conversation_id}
-    CACHE -->|命中| RET_CACHED[返回 cached 结果]
-    CACHE -->|未命中| BUILD[_base_state<br/>question/roles/hitl]
-    BUILD --> CONFIG["thread_id = conversation_id"]
-    CONFIG --> INVOKE[get_graph.invoke]
+    RID --> A1["② compress_chat_history<br/>裁历史，不裁 question"]
+    A1 --> A2{"③ Redis 查答案缓存<br/>cache_get<br/>（不是读 history）"}
 
-    INVOKE --> PACK[打包 result<br/>answer/sources/grade/hitl_pending/...]
-    PACK --> CACHE_W{可缓存?}
-    CACHE_W -->|是| CACHE_SET[cache_set]
-    CACHE_W -->|否| PERSIST
-    CACHE_SET --> PERSIST[storage: append user + assistant<br/>messages 表]
-    RET_CACHED --> PERSIST
+    A2 -->|命中| A2H[直接返回 cached answer]
+    A2 -->|未命中| A3[get_graph.invoke<br/>LangGraph 全图]
+    A3 --> A4[打包 result]
+    A4 --> A5{可写回答缓存?}
+    A5 -->|是| A6[cache_set]
+    A5 -->|否| MERGE[result]
+    A6 --> MERGE
 
-    PERSIST --> RETURN([返回 dict + conversation_id])
+    A2H --> SAVE["④ DB 写消息<br/>append user + assistant"]
+    MERGE --> SAVE
+    SAVE --> TIT{首轮?}
+    TIT -->|是| TITLE[touch_conversation 标题]
+    TIT -->|否| RETURN
+    TITLE --> RETURN([返回 JSON])
+
+    %% ②③ 在 agent.ask() 内；①④ 在 api._run_chat() 内

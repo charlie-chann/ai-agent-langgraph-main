@@ -1,31 +1,40 @@
 flowchart TD
-    REQ([HTTP Request]) --> SKIP{/health /ready<br/>/auth/token?}
+    REQ([HTTP Request]) --> SKIP{/health /ready<br/>/auth/token /metrics?}
     SKIP -->|是| PASS[跳过限流]
-    SKIP -->|否| RL[rate_limit_middleware<br/>Redis/内存计数]
+    SKIP -->|否| RL[rate_limit_middleware]
 
-    RL -->|超限| E429[429 Too Many Requests]
-    RL -->|OK| ROUTE{路由分发}
+    PASS --> ROUTE
+    RL -->|超限| E429[429]
+    RL -->|OK| ROUTE{api.py 路由}
 
-    ROUTE --> AUTH_EP["/auth/token"]
-    ROUTE --> CONV_EP["/conversations<br/>/conversations/id/messages<br/>/conversations/id/chat"]
-    ROUTE --> CHAT_EP["/chat /chat/stream<br/>兼容：自动建 conversation"]
-    ROUTE --> INGEST_EP["/ingest"]
-    ROUTE --> HITL_EP["/hitl/resume"]
-    ROUTE --> OPS["/health /ready /stats /metrics"]
+    ROUTE --> AUTH["/auth/token"]
+    ROUTE --> CHAT["/conversations* /chat*"]
+    ROUTE --> INGEST["/ingest"]
+    ROUTE --> HITL["/hitl/resume"]
+    ROUTE --> OPS_PUB["/health /ready"]
+    ROUTE --> OPS_AUTH["/stats /metrics"]
 
-    CONV_EP --> JWT{Bearer Token?}
-    CHAT_EP --> JWT
-    INGEST_EP --> JWT
-    HITL_EP --> JWT
-    OPS --> JWT2{需鉴权?}
+    AUTH --> H1[login → JWT]
 
-    JWT -->|无效| E401[401]
-    JWT -->|有效| RBAC{角色有 permission?}
-    RBAC -->|否| E403[403]
-    RBAC -->|是| HANDLER[业务 Handler]
+    CHAT --> JWT
+    INGEST --> JWT
+    HITL --> JWT
+    OPS_AUTH --> JWT
 
-    HANDLER --> CHAT_FLOW{聊天类?}
-    CHAT_FLOW -->|是| DB[storage: 读/写 messages]
-    CHAT_FLOW -->|否| RID[new_request_id]
-    DB --> RID
-    RID --> AGENT_CALL[调用 agent.py]
+    OPS_PUB --> H_OPS[health / ready]
+
+    JWT{Bearer + RBAC?}
+    JWT -->|401/403| ERR[拒绝]
+    JWT -->|通过| H2[Handler]
+
+    H2 --> T1["聊天 → 见 07 图"]
+    H2 --> T2[ingest → ingest_files]
+    H2 --> T3[hitl → resume_hitl]
+    H2 --> T4[stats / metrics]
+
+    T1 --> OUT([JSON 响应])
+    T2 --> OUT
+    T3 --> OUT
+    T4 --> OUT
+    H1 --> OUT
+    H_OPS --> OUT

@@ -254,36 +254,45 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    REQ([HTTP Request]) --> SKIP{/health /ready<br/>/auth/token?}
+    REQ([HTTP Request]) --> SKIP{/health /ready<br/>/auth/token /metrics?}
     SKIP -->|是| PASS[跳过限流]
-    SKIP -->|否| RL[rate_limit_middleware<br/>Redis/内存计数]
+    SKIP -->|否| RL[rate_limit_middleware]
 
-    RL -->|超限| E429[429 Too Many Requests]
-    RL -->|OK| ROUTE{路由分发}
+    PASS --> ROUTE
+    RL -->|超限| E429[429]
+    RL -->|OK| ROUTE{api.py 路由}
 
-    ROUTE --> AUTH_EP["/auth/token"]
-    ROUTE --> CONV_EP["/conversations<br/>/conversations/id/messages<br/>/conversations/id/chat"]
-    ROUTE --> CHAT_EP["/chat /chat/stream<br/>兼容：自动建 conversation"]
-    ROUTE --> INGEST_EP["/ingest"]
-    ROUTE --> HITL_EP["/hitl/resume"]
-    ROUTE --> OPS["/health /ready /stats /metrics"]
+    ROUTE --> AUTH["/auth/token"]
+    ROUTE --> CHAT["/conversations* /chat*"]
+    ROUTE --> INGEST["/ingest"]
+    ROUTE --> HITL["/hitl/resume"]
+    ROUTE --> OPS_PUB["/health /ready"]
+    ROUTE --> OPS_AUTH["/stats /metrics"]
 
-    CONV_EP --> JWT{Bearer Token?}
-    CHAT_EP --> JWT
-    INGEST_EP --> JWT
-    HITL_EP --> JWT
-    OPS --> JWT2{需鉴权?}
+    AUTH --> H1[login → JWT]
 
-    JWT -->|无效| E401[401]
-    JWT -->|有效| RBAC{角色有 permission?}
-    RBAC -->|否| E403[403]
-    RBAC -->|是| HANDLER[业务 Handler]
+    CHAT --> JWT
+    INGEST --> JWT
+    HITL --> JWT
+    OPS_AUTH --> JWT
 
-    HANDLER --> CHAT_FLOW{聊天类?}
-    CHAT_FLOW -->|是| DB[storage: 读/写 messages]
-    CHAT_FLOW -->|否| RID[new_request_id]
-    DB --> RID
-    RID --> AGENT_CALL[调用 agent.py]
+    OPS_PUB --> H_OPS[health / ready]
+
+    JWT{Bearer + RBAC?}
+    JWT -->|401/403| ERR[拒绝]
+    JWT -->|通过| H2[Handler]
+
+    H2 --> T1["聊天 → 见 07 图"]
+    H2 --> T2[ingest → ingest_files]
+    H2 --> T3[hitl → resume_hitl]
+    H2 --> T4[stats / metrics]
+
+    T1 --> OUT([JSON 响应])
+    T2 --> OUT
+    T3 --> OUT
+    T4 --> OUT
+    H1 --> OUT
+    H_OPS --> OUT
 ```
 
 </details>
@@ -369,24 +378,28 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START([POST /conversations/id/chat<br/>仅 message + conversation_id]) --> LOAD[storage: list_messages<br/>PostgreSQL / SQLite 降级]
-    LOAD --> DICT[dict_history_to_messages]
-    DICT --> COMPRESS[compress_chat_history<br/>裁历史，不裁 question]
+    START(["api._run_chat()<br/>来自 04 网关聊天 Handler"]) --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
+    LOAD --> RID[new_request_id + metrics]
 
-    COMPRESS --> CACHE{use_cache && Redis?<br/>key 含 conversation_id}
-    CACHE -->|命中| RET_CACHED[返回 cached 结果]
-    CACHE -->|未命中| BUILD[_base_state<br/>question/roles/hitl]
-    BUILD --> CONFIG["thread_id = conversation_id"]
-    CONFIG --> INVOKE[get_graph.invoke]
+    RID --> A1["② compress_chat_history<br/>裁历史，不裁 question"]
+    A1 --> A2{"③ Redis 查答案缓存<br/>cache_get<br/>（不是读 history）"}
 
-    INVOKE --> PACK[打包 result<br/>answer/sources/grade/hitl_pending/...]
-    PACK --> CACHE_W{可缓存?}
-    CACHE_W -->|是| CACHE_SET[cache_set]
-    CACHE_W -->|否| PERSIST
-    CACHE_SET --> PERSIST[storage: append user + assistant<br/>messages 表]
-    RET_CACHED --> PERSIST
+    A2 -->|命中| A2H[直接返回 cached answer]
+    A2 -->|未命中| A3[get_graph.invoke<br/>LangGraph 全图]
+    A3 --> A4[打包 result]
+    A4 --> A5{可写回答缓存?}
+    A5 -->|是| A6[cache_set]
+    A5 -->|否| MERGE[result]
+    A6 --> MERGE
 
-    PERSIST --> RETURN([返回 dict + conversation_id])
+    A2H --> SAVE["④ DB 写消息<br/>append user + assistant"]
+    MERGE --> SAVE
+    SAVE --> TIT{首轮?}
+    TIT -->|是| TITLE[touch_conversation 标题]
+    TIT -->|否| RETURN
+    TITLE --> RETURN([返回 JSON])
+
+    %% ②③ 在 agent.ask() 内；①④ 在 api._run_chat() 内
 ```
 
 </details>
