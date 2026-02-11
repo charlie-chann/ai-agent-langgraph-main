@@ -3,44 +3,41 @@ flowchart TD
 
     MODE -->|否 Local| ROLE[侧边栏选角色 admin/editor/viewer]
     MODE -->|是 API| LOGIN[输入用户名密码]
-    LOGIN --> TOKEN[POST /auth/token 经 ② 网关]
+    LOGIN --> TOKEN["POST /auth/token<br/>详图 04/05"]
     TOKEN --> ROLE2[session 存 token + role]
 
-    ROLE --> SETTINGS[Runtime Settings<br/>Local 模式生效]
+    ROLE --> SETTINGS["Runtime Settings<br/>详图 18 Provider 等 · Local 生效"]
     ROLE2 --> SETTINGS
 
     SETTINGS --> INGEST{上传文档?}
-    INGEST -->|是 Local| ING_LOCAL[ingest_files 直连 ⑤ 工具层]
+    INGEST -->|是 Local| ING_LOCAL["ingest_files 直连<br/>详图 15/17 · ⑥Chroma/BM25/KG"]
     INGEST -->|是 API| ING_API[POST /ingest]
     INGEST -->|否| CHAT
 
-    ING_API --> GW_ING["② 网关<br/>限流→JWT→RBAC"]
-    GW_ING --> ING_RUN[⑤ ingest_files]
+    ING_API --> GW_ING["② 网关<br/>详图 04/06/05"]
+    GW_ING --> ING_RUN["ingest_files<br/>详图 15/17 · ⑥Chroma/BM25/KG"]
     ING_LOCAL --> CHAT
     ING_RUN --> CHAT
 
     CHAT[用户输入问题] --> CHATMODE{API 模式?}
 
     CHATMODE -->|是| ENSURE{session 有<br/>conversation_id?}
-    ENSURE -->|否| CREATE[POST /conversations]
+    ENSURE -->|否| CREATE["POST /conversations<br/>详图 22 · ⑥PG"]
     CREATE --> CID[session 存 conversation_id]
     ENSURE -->|是| CID
-    CID --> POST_CHAT["POST /conversations/id/chat<br/>只发 message"]
-    POST_CHAT --> GW_CHAT["② 网关<br/>限流→JWT→RBAC"]
-    GW_CHAT --> DB_LOAD["⑥ Postgres 加载 history"]
-    DB_LOAD --> AGENT["③ agent.ask"]
-    AGENT --> STACK["④ LangGraph → ⑤ Tools → ⑥ LLM/存储"]
-    STACK --> DB_SAVE["⑥ 存 user + assistant 消息"]
-    DB_SAVE --> JSON[JSON 返回 ① UI]
+    CID --> POST_CHAT["POST .../chat 同步<br/>详图 07"]
+    POST_CHAT --> GW_CHAT["② 网关<br/>详图 04/06/05"]
+    GW_CHAT --> FLOW07["见详图 07<br/>↳ ⑤14/16/17 · ⑥18/20/Redis/PG"]
+    FLOW07 --> JSON[JSON 返回 UI]
     JSON --> HITL{hitl_pending?}
 
-    CHATMODE -->|否| STREAM_LOCAL["③ ask_stream 直连<br/>session messages 作 history"]
-    STREAM_LOCAL --> STACK_LOCAL["④～⑥ 同栈"]
-    STACK_LOCAL --> SHOW
+    CHATMODE -->|否| STREAM_LOCAL["ask_stream 直连<br/>详图 08 · session 作 history"]
+    STREAM_LOCAL --> FLOW08["见详图 08<br/>↳ ⑤14/16/17 · ⑥18/20"]
+    FLOW08 --> SHOW
 
     HITL -->|是| WARN[UI 显示等待审批]
     HITL -->|否| SHOW[展示 answer + metadata]
 
     WARN --> ADMIN{admin Approve?}
-    ADMIN -->|是| RESUME[POST /hitl/resume<br/>thread_id=conversation_id]
+    ADMIN -->|是| RESUME["POST /hitl/resume<br/>详图 09"]
     RESUME --> SHOW

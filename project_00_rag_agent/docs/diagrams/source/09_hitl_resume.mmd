@@ -1,7 +1,7 @@
 flowchart TD
     FROM(["来自 07 / 08<br/>hitl_pending=true<br/>第一次请求已结束"]) -.-> START
 
-    START([POST /hitl/resume<br/>thread_id = conversation_id]) --> SNAP[graph.get_state]
+    START([POST /hitl/resume<br/>thread_id = conversation_id]) --> SNAP["graph.get_state<br/>详图 13 · ⑥PG"]
     SNAP -->|无| ERR[No pending thread]
     SNAP -->|有| APPROVE{approved?}
 
@@ -9,9 +9,9 @@ flowchart TD
     REJECT --> END1([返回 rejected JSON])
 
     APPROVE -->|是| UPDATE[update_state hitl_approved=true]
-    UPDATE --> RESUME["graph.invoke(None)<br/>从 Checkpointer interrupt 续跑"]
-    RESUME --> FLOW[hitl_gate → rewrite → retrieve → generate → grade]
-    FLOW --> SAVE[storage.append_message assistant]
+    UPDATE --> RESUME["graph.invoke(None)<br/>详图 11 · ④13"]
+    RESUME --> FLOW["续跑全图<br/>↳ ⑤14/16/17 · ⑥18/19/20"]
+    FLOW --> SAVE["append assistant<br/>详图 22 · ⑥PG"]
     SAVE --> END2([返回完整 answer JSON])
 
     %% 独立第二次 HTTP；07/08 在 invoke/astream 中断后均走此路径

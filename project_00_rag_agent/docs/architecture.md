@@ -40,15 +40,15 @@ flowchart TD
         JWT --> ROUTE{路由}
     end
 
-    ROUTE -->|/ingest| ING([ingest · 详图 15/17])
+    ROUTE -->|/ingest| ING([ingest · 详图 15/17 · ⑥Chroma/BM25/KG])
     ROUTE -->|/chat*| CHAT
     ROUTE -->|/hitl/resume| HITL_BOX([HITL · 详图 09])
     ROUTE -->|/health /ready /metrics| OPS([运维 · 详图 18])
 
-    CHAT["读 history · 详图 22<br/>同步 图07 / 流式 图08"] --> SCH0
+    CHAT["读 history · 详图 22 · ⑥PG<br/>同步 图07 / 流式 图08"] --> SCH0
 
     subgraph SCH["③调度 agent.py"]
-        SCH0[compress · 详图 20] --> CACHE{cache_get · 详图 06}
+        SCH0[compress · 详图 20] --> CACHE{"cache_get · 详图 06 · ⑥Redis"}
         CACHE -->|命中| CACHED([cached 返回])
         CACHE -->|未命中| DRV{流式?}
         DRV -->|否| INV[invoke · 图 07]
@@ -59,14 +59,14 @@ flowchart TD
     AST --> EXEC_NODE
 
     subgraph EXEC["④执行 LangGraph · 详图 11/13"]
-        EXEC_NODE["guard → rewrite → retrieve → generate → grade<br/>retrieve · 详图 14/16/17<br/>LLM/trim · 详图 18/20"]
+        EXEC_NODE["guard→…→grade<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
     end
 
     EXEC --> PACK["③打包 result · cache_set? · 详图 06"]
     CACHED --> PACK
 
     PACK --> SAVE{落库?}
-    SAVE -->|API| DB["append 消息 · 详图 22"]
+    SAVE -->|API| DB["append · 详图 22 · ⑥PG"]
     SAVE -->|Local| SESS[session_state]
     DB --> OUT
     SESS --> OUT
@@ -261,46 +261,43 @@ flowchart TD
 
     MODE -->|否 Local| ROLE[侧边栏选角色 admin/editor/viewer]
     MODE -->|是 API| LOGIN[输入用户名密码]
-    LOGIN --> TOKEN[POST /auth/token 经 ② 网关]
+    LOGIN --> TOKEN["POST /auth/token<br/>详图 04/05"]
     TOKEN --> ROLE2[session 存 token + role]
 
-    ROLE --> SETTINGS[Runtime Settings<br/>Local 模式生效]
+    ROLE --> SETTINGS["Runtime Settings<br/>详图 18 Provider 等 · Local 生效"]
     ROLE2 --> SETTINGS
 
     SETTINGS --> INGEST{上传文档?}
-    INGEST -->|是 Local| ING_LOCAL[ingest_files 直连 ⑤ 工具层]
+    INGEST -->|是 Local| ING_LOCAL["ingest_files 直连<br/>详图 15/17 · ⑥Chroma/BM25/KG"]
     INGEST -->|是 API| ING_API[POST /ingest]
     INGEST -->|否| CHAT
 
-    ING_API --> GW_ING["② 网关<br/>限流→JWT→RBAC"]
-    GW_ING --> ING_RUN[⑤ ingest_files]
+    ING_API --> GW_ING["② 网关<br/>详图 04/06/05"]
+    GW_ING --> ING_RUN["ingest_files<br/>详图 15/17 · ⑥Chroma/BM25/KG"]
     ING_LOCAL --> CHAT
     ING_RUN --> CHAT
 
     CHAT[用户输入问题] --> CHATMODE{API 模式?}
 
     CHATMODE -->|是| ENSURE{session 有<br/>conversation_id?}
-    ENSURE -->|否| CREATE[POST /conversations]
+    ENSURE -->|否| CREATE["POST /conversations<br/>详图 22 · ⑥PG"]
     CREATE --> CID[session 存 conversation_id]
     ENSURE -->|是| CID
-    CID --> POST_CHAT["POST /conversations/id/chat<br/>只发 message"]
-    POST_CHAT --> GW_CHAT["② 网关<br/>限流→JWT→RBAC"]
-    GW_CHAT --> DB_LOAD["⑥ Postgres 加载 history"]
-    DB_LOAD --> AGENT["③ agent.ask"]
-    AGENT --> STACK["④ LangGraph → ⑤ Tools → ⑥ LLM/存储"]
-    STACK --> DB_SAVE["⑥ 存 user + assistant 消息"]
-    DB_SAVE --> JSON[JSON 返回 ① UI]
+    CID --> POST_CHAT["POST .../chat 同步<br/>详图 07"]
+    POST_CHAT --> GW_CHAT["② 网关<br/>详图 04/06/05"]
+    GW_CHAT --> FLOW07["见详图 07<br/>↳ ⑤14/16/17 · ⑥18/20/Redis/PG"]
+    FLOW07 --> JSON[JSON 返回 UI]
     JSON --> HITL{hitl_pending?}
 
-    CHATMODE -->|否| STREAM_LOCAL["③ ask_stream 直连<br/>session messages 作 history"]
-    STREAM_LOCAL --> STACK_LOCAL["④～⑥ 同栈"]
-    STACK_LOCAL --> SHOW
+    CHATMODE -->|否| STREAM_LOCAL["ask_stream 直连<br/>详图 08 · session 作 history"]
+    STREAM_LOCAL --> FLOW08["见详图 08<br/>↳ ⑤14/16/17 · ⑥18/20"]
+    FLOW08 --> SHOW
 
     HITL -->|是| WARN[UI 显示等待审批]
     HITL -->|否| SHOW[展示 answer + metadata]
 
     WARN --> ADMIN{admin Approve?}
-    ADMIN -->|是| RESUME[POST /hitl/resume<br/>thread_id=conversation_id]
+    ADMIN -->|是| RESUME["POST /hitl/resume<br/>详图 09"]
     RESUME --> SHOW
 ```
 
@@ -455,7 +452,9 @@ flowchart TD
 
 ## 五、层 3：编排层（`agent.py`）
 
-**读图说明**：`07`/`08` 只画 **③调度 + ②网关落库** 本路径步骤；执行层、HITL、工具/基建一律 **`详图 NN` 跳转**（与 `06`/`09` 同级粒度）。
+**读图说明**：`07`/`08` 只画本路径步骤；**用到工具/基建时**在节点上标 `↳ ⑤14/16/17 · ⑥18/…`（分图见 §2.1）。执行/HITL 内部不展开，见 **详图 11/09**。
+
+**标注约定**：`⑤` = 工具层（`14` 检索、`15` ingest、`16` 冲突、`17` KG）；`⑥` = 基础设施（`18` Provider/熔断、`19` 超时、`20` 压缩、`Redis`/`PG`/`Chroma` 等）。
 
 ### 5.1 `ask()` 同步问答主流程
 
@@ -467,29 +466,30 @@ flowchart TD
 ```mermaid
 flowchart TD
     START(["api._run_chat()<br/>来自 04 网关聊天 Handler"]) --> RID[new_request_id + metrics]
-    RID --> LOAD["① DB 读 history<br/>storage · 详图 22"]
-    LOAD --> A1["② compress_chat_history · 详图 20"]
-    A1 --> A2{"③ Redis cache_get · 详图 06"}
+    RID --> LOAD["① DB 读 history<br/>详图 22 · ⑥PG/SQLite"]
+    LOAD --> A1["② compress_chat_history<br/>详图 20"]
+    A1 --> A2{"③ Redis cache_get<br/>详图 06 · ⑥Redis"}
 
     A2 -->|命中| A2H[直接返回 cached answer]
-    A2 -->|未命中| A3["get_graph.invoke<br/>LangGraph 全图 · 详图 11"]
+    A2 -->|未命中| A3["get_graph.invoke · 详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
 
     A3 --> A4[打包 result]
     A4 --> A5{可写回答缓存?}
-    A5 -->|是| A6[cache_set · 详图 06]
+    A5 -->|是| A6["cache_set<br/>详图 06 · ⑥Redis"]
     A5 -->|否| MERGE[result]
     A6 --> MERGE
 
     A2H --> SAVE
-    MERGE --> SAVE["④ DB 写消息<br/>append user + assistant · 详图 22"]
+    MERGE --> SAVE["④ DB 写消息<br/>详图 22 · ⑥PG/SQLite"]
     SAVE --> TIT{首轮?}
     TIT -->|是| TITLE[touch_conversation 标题]
     TIT -->|否| RETURN
     TITLE --> RETURN([返回 JSON])
 
-    RETURN -.->|hitl_pending| H09[详图 09 HITL 续跑]
+    RETURN -.->|hitl_pending| H09["详图 09<br/>↳ ④13 · ⑥PG"]
 
     %% ②③ 在 agent.ask()；①④ 在 api._run_chat()
+    %% ⑤=工具层 14/15/16/17；⑥=基建 18/19/20/Redis/PG/Chroma 等
 ```
 
 </details>
@@ -513,35 +513,34 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START(["api.conversation_chat_stream()<br/>来自 04 网关流式 Handler"]) --> RID[new_request_id + metrics]
-    RID --> LOAD["① DB 读 history<br/>storage · 详图 22"]
-    LOAD --> UMSG["写 user 消息<br/>append_message · 流式在 ask 前"]
+    START(["api.conversation_chat_stream()<br/>来自 04 网关聊天 Handler"]) --> RID[new_request_id + metrics]
+    RID --> LOAD["① DB 读 history<br/>详图 22 · ⑥PG/SQLite"]
+    LOAD --> UMSG["写 user 消息<br/>详图 22 · ⑥PG/SQLite"]
 
-    UMSG --> A1["② compress_chat_history · 详图 20"]
-    A1 --> A2{"③ Redis cache_get · 详图 06"}
+    UMSG --> A1["② compress_chat_history<br/>详图 20"]
+    A1 --> A2{"③ Redis cache_get<br/>详图 06 · ⑥Redis"}
 
     A2 -->|命中| A2H[分块 yield cached + __META__]
-    A2 -->|未命中| A3["ask_stream_async<br/>astream 全图 · 详图 11"]
+    A2 -->|未命中| A3["ask_stream_async · astream<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
 
     A3 --> A4["③ yield token + __META__<br/>grade 定稿后 flush buffer"]
     A4 --> A5{可写回答缓存?}
-    A5 -->|是| A6[cache_set · 详图 06]
+    A5 -->|是| A6["cache_set<br/>详图 06 · ⑥Redis"]
     A5 -->|否| MERGE[result]
     A6 --> MERGE
 
     A2H --> WRAP
     MERGE --> WRAP["api._gen：SSE 包装<br/>yield data: token / __META__"]
 
-    WRAP --> SAVE["④ DB 写 assistant · 详图 22"]
+    WRAP --> SAVE["④ DB 写 assistant<br/>详图 22 · ⑥PG/SQLite"]
     SAVE --> TIT{首轮?}
     TIT -->|是| TITLE[touch_conversation 标题]
     TIT -->|否| RETURN
     TITLE --> RETURN(["SSE data: DONE"])
 
-    RETURN -.->|hitl_pending| H09[详图 09 HITL 续跑]
+    RETURN -.->|hitl_pending| H09["详图 09<br/>↳ ④13 · ⑥PG"]
 
-    %% ②③④ 前半在 ask_stream_async；① 写 user、SSE、落库在 api._gen
-    %% 与 07 差异：astream、先写 user、yield；执行/HITL 细节见 11/09
+    %% 与 07 差异：astream、先写 user、yield+SSE；执行内工具/基建见 11 框标注
 ```
 
 </details>
@@ -559,7 +558,7 @@ flowchart TD
 flowchart TD
     FROM(["来自 07 / 08<br/>hitl_pending=true<br/>第一次请求已结束"]) -.-> START
 
-    START([POST /hitl/resume<br/>thread_id = conversation_id]) --> SNAP[graph.get_state]
+    START([POST /hitl/resume<br/>thread_id = conversation_id]) --> SNAP["graph.get_state<br/>详图 13 · ⑥PG"]
     SNAP -->|无| ERR[No pending thread]
     SNAP -->|有| APPROVE{approved?}
 
@@ -567,9 +566,9 @@ flowchart TD
     REJECT --> END1([返回 rejected JSON])
 
     APPROVE -->|是| UPDATE[update_state hitl_approved=true]
-    UPDATE --> RESUME["graph.invoke(None)<br/>从 Checkpointer interrupt 续跑"]
-    RESUME --> FLOW[hitl_gate → rewrite → retrieve → generate → grade]
-    FLOW --> SAVE[storage.append_message assistant]
+    UPDATE --> RESUME["graph.invoke(None)<br/>详图 11 · ④13"]
+    RESUME --> FLOW["续跑全图<br/>↳ ⑤14/16/17 · ⑥18/19/20"]
+    FLOW --> SAVE["append assistant<br/>详图 22 · ⑥PG"]
     SAVE --> END2([返回完整 answer JSON])
 
     %% 独立第二次 HTTP；07/08 在 invoke/astream 中断后均走此路径
@@ -586,8 +585,8 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    BOOT([api lifespan]) --> S1[startup rebuild_bm25_from_chroma]
-    S1 --> S2[get_checkpointer setup Postgres]
+    BOOT([api lifespan]) --> S1["startup rebuild_bm25<br/>详图 14 · ⑥Chroma/BM25"]
+    S1 --> S2["get_checkpointer<br/>详图 13 · ⑥PG"]
     S2 --> READY[服务就绪]
 ```
 

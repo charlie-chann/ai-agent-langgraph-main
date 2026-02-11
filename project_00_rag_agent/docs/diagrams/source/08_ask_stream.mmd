@@ -1,30 +1,29 @@
 flowchart TD
-    START(["api.conversation_chat_stream()<br/>来自 04 网关流式 Handler"]) --> RID[new_request_id + metrics]
-    RID --> LOAD["① DB 读 history<br/>storage · 详图 22"]
-    LOAD --> UMSG["写 user 消息<br/>append_message · 流式在 ask 前"]
+    START(["api.conversation_chat_stream()<br/>来自 04 网关聊天 Handler"]) --> RID[new_request_id + metrics]
+    RID --> LOAD["① DB 读 history<br/>详图 22 · ⑥PG/SQLite"]
+    LOAD --> UMSG["写 user 消息<br/>详图 22 · ⑥PG/SQLite"]
 
-    UMSG --> A1["② compress_chat_history · 详图 20"]
-    A1 --> A2{"③ Redis cache_get · 详图 06"}
+    UMSG --> A1["② compress_chat_history<br/>详图 20"]
+    A1 --> A2{"③ Redis cache_get<br/>详图 06 · ⑥Redis"}
 
     A2 -->|命中| A2H[分块 yield cached + __META__]
-    A2 -->|未命中| A3["ask_stream_async<br/>astream 全图 · 详图 11"]
+    A2 -->|未命中| A3["ask_stream_async · astream<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
 
     A3 --> A4["③ yield token + __META__<br/>grade 定稿后 flush buffer"]
     A4 --> A5{可写回答缓存?}
-    A5 -->|是| A6[cache_set · 详图 06]
+    A5 -->|是| A6["cache_set<br/>详图 06 · ⑥Redis"]
     A5 -->|否| MERGE[result]
     A6 --> MERGE
 
     A2H --> WRAP
     MERGE --> WRAP["api._gen：SSE 包装<br/>yield data: token / __META__"]
 
-    WRAP --> SAVE["④ DB 写 assistant · 详图 22"]
+    WRAP --> SAVE["④ DB 写 assistant<br/>详图 22 · ⑥PG/SQLite"]
     SAVE --> TIT{首轮?}
     TIT -->|是| TITLE[touch_conversation 标题]
     TIT -->|否| RETURN
     TITLE --> RETURN(["SSE data: DONE"])
 
-    RETURN -.->|hitl_pending| H09[详图 09 HITL 续跑]
+    RETURN -.->|hitl_pending| H09["详图 09<br/>↳ ④13 · ⑥PG"]
 
-    %% ②③④ 前半在 ask_stream_async；① 写 user、SSE、落库在 api._gen
-    %% 与 07 差异：astream、先写 user、yield；执行/HITL 细节见 11/09
+    %% 与 07 差异：astream、先写 user、yield+SSE；执行内工具/基建见 11 框标注

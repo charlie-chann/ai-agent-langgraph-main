@@ -22,15 +22,15 @@ flowchart TD
         JWT --> ROUTE{路由}
     end
 
-    ROUTE -->|/ingest| ING([ingest · 详图 15/17])
+    ROUTE -->|/ingest| ING([ingest · 详图 15/17 · ⑥Chroma/BM25/KG])
     ROUTE -->|/chat*| CHAT
     ROUTE -->|/hitl/resume| HITL_BOX([HITL · 详图 09])
     ROUTE -->|/health /ready /metrics| OPS([运维 · 详图 18])
 
-    CHAT["读 history · 详图 22<br/>同步 图07 / 流式 图08"] --> SCH0
+    CHAT["读 history · 详图 22 · ⑥PG<br/>同步 图07 / 流式 图08"] --> SCH0
 
     subgraph SCH["③调度 agent.py"]
-        SCH0[compress · 详图 20] --> CACHE{cache_get · 详图 06}
+        SCH0[compress · 详图 20] --> CACHE{"cache_get · 详图 06 · ⑥Redis"}
         CACHE -->|命中| CACHED([cached 返回])
         CACHE -->|未命中| DRV{流式?}
         DRV -->|否| INV[invoke · 图 07]
@@ -41,14 +41,14 @@ flowchart TD
     AST --> EXEC_NODE
 
     subgraph EXEC["④执行 LangGraph · 详图 11/13"]
-        EXEC_NODE["guard → rewrite → retrieve → generate → grade<br/>retrieve · 详图 14/16/17<br/>LLM/trim · 详图 18/20"]
+        EXEC_NODE["guard→…→grade<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
     end
 
     EXEC --> PACK["③打包 result · cache_set? · 详图 06"]
     CACHED --> PACK
 
     PACK --> SAVE{落库?}
-    SAVE -->|API| DB["append 消息 · 详图 22"]
+    SAVE -->|API| DB["append · 详图 22 · ⑥PG"]
     SAVE -->|Local| SESS[session_state]
     DB --> OUT
     SESS --> OUT
