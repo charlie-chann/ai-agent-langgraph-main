@@ -28,7 +28,6 @@
 • 熟练 JavaScript/TypeScript/Objective-C/Kotlin/Java，熟悉 Python 用于 Agent 与服务端开发
 • 熟悉 RESTful API、JSON 数据结构与前后端联调；LLM 结构化输出解析（JSON 抽取与容错 fallback）
 • 熟悉 Git 分支管理、Code Review；Jenkins CI；了解 Docker 容器化部署与 uv 依赖管理
-
 【移动端】
 • 8年+ iOS（Objective-C/Swift）与 React Native 实战经验，可独立负责移动端架构与交付
 • 熟悉 MVVM/MVC、组件化/模块化、多线程（GCD）、内存与启动性能优化（Instruments）
@@ -36,34 +35,30 @@
 • 可将 Agent 能力落地为 App/Web/小程序客户端：对话 UI、SSE 流式展示、工具调用过程可视化
 工作经历                                                                         
 2026.01-至今           
-·深圳市滚水科技有限公司（https://boilingwater.cn/）
+·深圳市滚水科技有限公司
 ·职位：全栈 Agent 开发工程师
-·主要负责方向：对话式 AI / 企业知识库 RAG、行业定制 Agent 方案从 POC 到交付；负责 Agent 服务 API、对话前端与管理端联调，支撑官网案例演示与客户售前方案落地
+·主要负责方向：对话式 AI / 企业知识库 RAG、行业定制 Agent 方案落地；兼顾部分管理端与对话前端、Agent 服务 API 开发与联调
+参与项目：https://boilingwater.cn/
 
-·核心职责：
-1）主导生产级 RAG Agent 架构设计与开发：LangGraph 六层分层（网关/调度/执行/工具/基础设施）、Guard → Rewrite → Retrieve → Generate → Grade 闭环
-2）负责企业知识库核心模块：Hybrid 检索（BM25 + 向量）+ KG 增强 + 冲突检测、Grader 自校正与 Query 改写重试、Eval Harness 回归评测
-3）负责 Agent 服务后端（FastAPI）：JWT/RBAC 权限隔离、Redis 缓存与限流、SSE 流式推送与 WAL 断点续推、PostgreSQL 多轮会话、HITL 人工审批
-4）沉淀 30+ 可复用 Agent 模板（RAG / ReAct / 多 Agent / Deep Research / 资讯聚合 / 社媒内容等），快速支撑官网 boilingwater.cn 行业案例与客户 POC
-5）参与 AI 写作助手、社区团购、K12 测评、慢病管理等售前 Demo 的 Agent 能力封装；负责流式 Markdown 渲染、引用溯源与工具调用可视化
-6）编写 pytest 单元/集成测试，保障 RAG 链路、API 契约与流式协议稳定
+·项目职责：
+1）负责 Agent 核心链路设计与开发：Prompt 模板、Tool/Function Calling、多轮上下文、流式输出与异常降级
+2）负责企业知识库 RAG 模块：文档解析与切分、向量检索、Cross-Encoder Rerank 精排、Grader 答案校验与 query 改写重试
+3）基于 LangChain / LangGraph 实现 ReAct 工具循环、多 Agent 协作编排（Planner / Researcher / Writer 等节点）及状态管理
+4）负责 Agent 服务后端（FastAPI）：会话接口、SSE 流式推送、鉴权与限流、对接通义/DeepSeek 等 LLM API 及 Ollama 本地模型
+5）参与对话式售前/方案生成、AI 写作助手、社区团购等业务 Demo 的 Agent 能力封装与方案演示落地
+6）负责部分 Web 管理端与对话 UI：流式 Markdown 渲染、引用来源展示、工具调用过程可视化；与产品/售前协作完成需求拆解与迭代交付
+7）编写 pytest 单元测试，保障工具函数、RAG 链路与 API 契约稳定；
 
 ·代表产品项目：
-
-【企业级大模型智能知识库】（核心负责人）2025.10 - 至今
+【企业级大模型智能知识库】（核心负责人）
 ·背景：面向工程/制造类客户，海量异构文档（PDF/Word/表格）需按角色权限隔离检索，防止非授权信息外泄
 ·流程：Hybrid 关键词 + 语义向量检索 → Cross-Encoder Rerank → 知识图谱实体关联 → Guard 安全门控 → Grader 评分不通过自动改写重检索；JWT/RBAC 权限隔离 + 内网私有化部署（Ollama）；Eval Harness 自动化评测 + 回归门禁
 ·结果：检索准确率 97.5%；0 起外部信息泄露；问答效率提升约 87%
 
-【Daily Digest | 每日资讯自动订阅】（负责人）2025.11 - 至今
+【Daily Digest | 每日资讯自动订阅】（负责人）
 ·背景：客户需每日跟踪多平台资讯（RSS/网页/PDF/社媒），人工筛选耗时且易遗漏
-·流程：多源 RSS/网页采集 → 去重排序与订阅者偏好过滤 → AI 主题分类与摘要生成 → Cron 定时推送（支持时区）；FastAPI SSE 流式接口 + Streamlit 管理端
+·流程：多源 RSS/网页采集 → 去重排序与订阅者偏好过滤 → AI 主题分类与摘要生成 → Cron 定时推送（支持时区）；
 ·结果：采集-过滤-生成-推送全流程自动化；日均节省 1h+ 人工；去重率 >85%
-
-【工程项目工作日历排班系统】（负责人）2025.8 - 至今
-·背景：多施工方并行工程排班，Excel 协作易冲突、人员证件信息存在泄露风险
-·流程：局部预览 + JSON Patch 增量写入替代整表重写；服务端冲突检测与自动消解；人员信息脱敏与接口权限管控
-·结果：关键排班 100% 无冲突；0 起信息泄露；人工编辑耗时降低约 75%
 
 ·技术栈：
 LangChain、LangGraph、LCEL、ChromaDB、BM25、Cross-Encoder Rerank、Knowledge Graph
@@ -75,13 +70,6 @@ Ollama / 通义千问 / DeepSeek API 路由；SSE 流式 + WAL 断点续推；JW
 2）30+ Agent 模板支撑 boilingwater.cn 官网 20+ 行业案例演示，客户 POC 搭建周期从数周缩短至数天
 3）RAG「检索 → 生成 → 评分 → 重检索」闭环 + Eval 回归门禁，显著降低幻觉与答非所问
 4）统一 Agent API 与 SSE 流式协议，前端/App/小程序可复用同一套对话接口；结合 RN 大前端经验优化流式渲染与异常态体验
-
-
-
-
-
-
-
 
 2021.11-2026.01        
 ·喜茶【深圳灵感之茶有限公司】                             
