@@ -2,6 +2,7 @@ langchain>=1.0
 langchain-community>=0.3
 langchain-core>=0.3
 langgraph>=0.2
+langchain-ollama>=0.2.0
 duckduckgo-search>=6.0
 fastapi>=0.115
 uvicorn[standard]>=0.30
