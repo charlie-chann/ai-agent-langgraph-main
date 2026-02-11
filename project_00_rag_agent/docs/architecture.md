@@ -410,50 +410,11 @@ flowchart TD
 
 生产形态：**客户端只传 `conversation_id` + `message`**，`chat_history` 由服务端从 PostgreSQL（无则 SQLite 降级）加载与落库。`conversation_id` 同时作为 LangGraph `thread_id`（HITL 对齐）。
 
-![会话存储](./diagrams/22_conversations.png)
-
-<details>
-<summary>查看 Mermaid 源码（可编辑后运行 scripts/render_diagrams.py 重新出图）</summary>
-
-```mermaid
-flowchart TD
-    subgraph Client["① 客户端"]
-        C1[只保存 conversation_id]
-        C2[每次 POST message]
-    end
-
-    subgraph API["② api.py"]
-        A1[POST /conversations 创建]
-        A2[GET /conversations/id/messages]
-        A3[POST /conversations/id/chat]
-    end
-
-    subgraph Store["storage/conversations.py"]
-        S1[(conversations 表)]
-        S2[(messages 表<br/>role + content 明文)]
-    end
-
-    subgraph Agent["③ agent.ask"]
-        G1[list_messages → compress → LangGraph]
-        G2[thread_id = conversation_id]
-    end
-
-    C1 --> A3
-    C2 --> A3
-    A1 --> S1
-    A3 --> S2
-    A3 --> G1
-    G1 --> S2
-    A2 --> S2
-
-    PG[(PostgreSQL)] --- S1
-    PG --- S2
-    SQLITE[(SQLite 降级)] -.->|无 Postgres 时| S1
-```
-
-</details>
+详见 **图 22 会话存储**（§8.5 / `docs/diagrams/22_conversations.png`）。
 
 ### 5.3 `ask_stream()` 流式问答流程
+
+与图 `07` 同结构（①～④ + 缓存 + 全图）。差异：**先写 user**、**`astream` + SSE** 包装；**⑤ HITL** 为**另一次 HTTP**（第一次 SSE 已 `DONE` 后管理员再调 `/hitl/resume`，详图 `09`）。
 
 ![ask_stream() 流式](./diagrams/08_ask_stream.png)
 
@@ -462,21 +423,56 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START([ask_stream]) --> COMP[compress_chat_history]
-    COMP --> G1[node_guard]
-    G1 -->|blocked| OUT1[直接 yield 拒答]
-    G1 -->|ok| R1[node_rewrite]
-    R1 --> RET1[node_retrieve]
-    RET1 --> TRIM[trim_context_chunks token 预算]
-    TRIM --> STREAM["rag_prompt + LLM streaming<br/>逐 token yield"]
-    STREAM --> G2[node_generate 补全 state]
-    G2 --> GR[node_grade 质量评分]
-    GR --> META[yield __META__ JSON<br/>sources/latency/grade]
+    START(["api.conversation_chat_stream()<br/>来自 04 网关流式 Handler"]) --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
+    LOAD --> RID[new_request_id + metrics]
+    RID --> UMSG["写 user 消息<br/>append_message(user)<br/>（流式：在 ask 前写入）"]
+
+    UMSG --> A1["② compress_chat_history<br/>裁历史，不裁 question"]
+    A1 --> A2{"③ Redis 查答案缓存<br/>cache_get<br/>（不是读 history）"}
+
+    A2 -->|命中| A2H[分块 yield cached + __META__]
+    A2 -->|未命中| A3["get_graph.astream<br/>LangGraph 全图<br/>updates + custom token"]
+    A3 --> A4[打包 result + __META__]
+    A4 --> A5{可写回答缓存?}
+    A5 -->|是| A6[cache_set]
+    A5 -->|否| MERGE[result]
+    A6 --> MERGE
+
+    A2H --> WRAP
+    MERGE --> WRAP["api._gen：SSE 包装<br/>async for 每条 data: token / __META__"]
+
+    WRAP --> SAVE["④ DB 写 assistant<br/>append_message(assistant)"]
+    SAVE --> TIT{首轮?}
+    TIT -->|是| TITLE[touch_conversation 标题]
+    TIT -->|否| RETURN
+    TITLE --> RETURN(["本请求结束：SSE data: DONE"])
+
+    RETURN -.->|__META__.hitl_pending=true| HITL_LINK[触发第二次请求]
+    HITL_LINK -.-> H1
+
+    subgraph HITL["⑤ HITL 续跑（详图见 09）"]
+        H1["POST /hitl/resume<br/>resume_hitl · admin"]
+        H1 --> H2[graph.get_state]
+        H2 -->|无| ERR[No pending thread]
+        H2 -->|有| H3{approved?}
+        H3 -->|否| H4[update_state 拒答]
+        H4 --> END_R([返回 rejected])
+        H3 -->|是| H5[update_state hitl_approved=true]
+        H5 --> H6["graph.invoke(None)<br/>从 interrupt 续跑"]
+        H6 --> H7[hitl_gate → rewrite → retrieve → generate → grade]
+        H7 --> H8[append assistant 最终消息]
+        H8 --> END_OK([返回完整 answer JSON])
+    end
+
+    %% ②③④ 前半在 ask_stream_async()；① 写 user、SSE 包装、首轮标题在 api._gen
+    %% 与 07 差异：astream+SSE、先写 user；⑤ 为另一次 HTTP，非同一条 SSE 连接内续跑
 ```
 
 </details>
 
 ### 5.4 `resume_hitl()` HITL 恢复流程
+
+**独立第二次 HTTP**（`07`/`08` 第一次返回 `hitl_pending` 后进入）。已整合在图 `08` 的 ⑤ 节；下图为其详图。
 
 ![HITL resume](./diagrams/09_hitl_resume.png)
 
@@ -485,18 +481,22 @@ flowchart TD
 
 ```mermaid
 flowchart TD
+    FROM(["来自 07 / 08<br/>hitl_pending=true<br/>第一次请求已结束"]) -.-> START
+
     START([POST /hitl/resume<br/>thread_id = conversation_id]) --> SNAP[graph.get_state]
     SNAP -->|无| ERR[No pending thread]
     SNAP -->|有| APPROVE{approved?}
 
     APPROVE -->|否| REJECT[update_state 拒答]
-    REJECT --> END1([返回 rejected])
+    REJECT --> END1([返回 rejected JSON])
 
     APPROVE -->|是| UPDATE[update_state hitl_approved=true]
-    UPDATE --> RESUME[graph.invoke None 从 interrupt 继续]
+    UPDATE --> RESUME["graph.invoke(None)<br/>从 Checkpointer interrupt 续跑"]
     RESUME --> FLOW[hitl_gate → rewrite → retrieve → generate → grade]
-    FLOW --> SAVE[storage: append assistant 消息]
-    SAVE --> END2([返回完整 answer])
+    FLOW --> SAVE[storage.append_message assistant]
+    SAVE --> END2([返回完整 answer JSON])
+
+    %% 独立第二次 HTTP；07/08 在 invoke/astream 中断后均走此路径
 ```
 
 </details>
@@ -887,6 +887,51 @@ flowchart TB
 | ollama | 11434 | LLM + Embed |
 | redis | 6379 | Cache + rate limit |
 | postgres | 5432 | conversations + messages + HITL checkpoint |
+
+### 8.5 会话存储（`storage/conversations.py`）
+
+![会话存储](./diagrams/22_conversations.png)
+
+<details>
+<summary>查看 Mermaid 源码（可编辑后运行 scripts/render_diagrams.py 重新出图）</summary>
+
+```mermaid
+flowchart TD
+    subgraph Client["① 客户端"]
+        C1[只保存 conversation_id]
+        C2[每次 POST message]
+    end
+
+    subgraph API["② api.py"]
+        A1[POST /conversations 创建]
+        A2[GET /conversations/id/messages]
+        A3[POST /conversations/id/chat]
+    end
+
+    subgraph Store["storage/conversations.py"]
+        S1[(conversations 表)]
+        S2[(messages 表<br/>role + content 明文)]
+    end
+
+    subgraph Agent["③ agent.ask"]
+        G1[list_messages → compress → LangGraph]
+        G2[thread_id = conversation_id]
+    end
+
+    C1 --> A3
+    C2 --> A3
+    A1 --> S1
+    A3 --> S2
+    A3 --> G1
+    G1 --> S2
+    A2 --> S2
+
+    PG[(PostgreSQL)] --- S1
+    PG --- S2
+    SQLITE[(SQLite 降级)] -.->|无 Postgres 时| S1
+```
+
+</details>
 
 ---
 

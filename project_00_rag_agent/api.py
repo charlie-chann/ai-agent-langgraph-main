@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from agent import ask, ask_stream, get_stats, resume_hitl, startup
+from agent import ask, ask_stream_async, get_stats, resume_hitl, startup
 from core.exceptions import RAGError
 from core.compression import dict_history_to_messages
 from middleware.auth import TokenPayload, authenticate_user, create_access_token, require_permission
@@ -251,14 +251,17 @@ async def conversation_chat_stream(
     inc("requests_total")
     store.append_message(conversation_id, "user", req.message)
 
-    def _gen():
+    async def _gen():
         full_answer = ""
         meta: dict = {}
-        for token in ask_stream(
+        async for token in ask_stream_async(
             req.message,
             history,
             user_roles=[user.role, "public"],
+            thread_id=conversation_id,
             conversation_id=conversation_id,
+            hitl_approved=req.hitl_approved,
+            use_cache=req.use_cache,
         ):
             if token.startswith("\n\n__META__"):
                 meta = json.loads(token.replace("\n\n__META__", ""))
@@ -266,8 +269,17 @@ async def conversation_chat_stream(
             else:
                 full_answer += token
                 yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
-        assistant_meta = {k: meta.get(k) for k in ("sources", "latency_ms", "grade", "request_id") if meta.get(k)}
-        store.append_message(conversation_id, "assistant", full_answer, metadata=assistant_meta)
+        assistant_meta = {
+            k: meta.get(k)
+            for k in ("sources", "latency_ms", "grade", "request_id", "hitl_pending", "cached")
+            if meta.get(k) is not None
+        }
+        final_answer = meta.get("answer") or full_answer
+        store.append_message(conversation_id, "assistant", final_answer, metadata=assistant_meta)
+        if meta.get("cached"):
+            inc("cache_hits")
+        if meta.get("hitl_pending"):
+            inc("hitl_pending")
         if len(history) == 0:
             title = req.message.strip().replace("\n", " ")[:80]
             store.touch_conversation(conversation_id, title=title or "New chat")

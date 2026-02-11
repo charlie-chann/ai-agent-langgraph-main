@@ -144,17 +144,32 @@ def node_generate(state: RAGState) -> RAGState:
     context = trim_context_chunks(chunks)
 
     try:
-        state["answer"] = _invoke_chain(
-            rag_prompt,
-            {
-                "context": context or "(no context)",
-                "kg_context": state.get("kg_context") or "(none)",
-                "conflicts": state.get("conflicts") or "",
-                "question": state["question"],
-                "chat_history": state.get("chat_history") or [],
-            },
-            label="generate",
-        )
+        writer = None
+        try:
+            from langgraph.config import get_stream_writer
+
+            writer = get_stream_writer()
+        except Exception:
+            writer = None
+
+        inputs = {
+            "context": context or "(no context)",
+            "kg_context": state.get("kg_context") or "(none)",
+            "conflicts": state.get("conflicts") or "",
+            "question": state["question"],
+            "chat_history": state.get("chat_history") or [],
+        }
+        if writer is not None:
+            chain = rag_prompt | get_chat_model(streaming=True)
+            parts: list[str] = []
+            for chunk in chain.stream(inputs):
+                token = getattr(chunk, "content", "") or ""
+                if token:
+                    parts.append(token)
+                    writer({"type": "token", "content": token})
+            state["answer"] = "".join(parts)
+        else:
+            state["answer"] = _invoke_chain(rag_prompt, inputs, label="generate")
     except Exception as e:
         logger.error(f"Generate failed: {e}")
         if chunks:

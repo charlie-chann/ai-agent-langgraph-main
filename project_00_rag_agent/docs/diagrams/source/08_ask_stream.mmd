@@ -1,11 +1,44 @@
 flowchart TD
-    START([ask_stream]) --> COMP[compress_chat_history]
-    COMP --> G1[node_guard]
-    G1 -->|blocked| OUT1[直接 yield 拒答]
-    G1 -->|ok| R1[node_rewrite]
-    R1 --> RET1[node_retrieve]
-    RET1 --> TRIM[trim_context_chunks token 预算]
-    TRIM --> STREAM["rag_prompt + LLM streaming<br/>逐 token yield"]
-    STREAM --> G2[node_generate 补全 state]
-    G2 --> GR[node_grade 质量评分]
-    GR --> META[yield __META__ JSON<br/>sources/latency/grade]
+    START(["api.conversation_chat_stream()<br/>来自 04 网关流式 Handler"]) --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
+    LOAD --> RID[new_request_id + metrics]
+    RID --> UMSG["写 user 消息<br/>append_message(user)<br/>（流式：在 ask 前写入）"]
+
+    UMSG --> A1["② compress_chat_history<br/>裁历史，不裁 question"]
+    A1 --> A2{"③ Redis 查答案缓存<br/>cache_get<br/>（不是读 history）"}
+
+    A2 -->|命中| A2H[分块 yield cached + __META__]
+    A2 -->|未命中| A3["get_graph.astream<br/>LangGraph 全图<br/>updates + custom token"]
+    A3 --> A4[打包 result + __META__]
+    A4 --> A5{可写回答缓存?}
+    A5 -->|是| A6[cache_set]
+    A5 -->|否| MERGE[result]
+    A6 --> MERGE
+
+    A2H --> WRAP
+    MERGE --> WRAP["api._gen：SSE 包装<br/>async for 每条 data: token / __META__"]
+
+    WRAP --> SAVE["④ DB 写 assistant<br/>append_message(assistant)"]
+    SAVE --> TIT{首轮?}
+    TIT -->|是| TITLE[touch_conversation 标题]
+    TIT -->|否| RETURN
+    TITLE --> RETURN(["本请求结束：SSE data: DONE"])
+
+    RETURN -.->|__META__.hitl_pending=true| HITL_LINK[触发第二次请求]
+    HITL_LINK -.-> H1
+
+    subgraph HITL["⑤ HITL 续跑（详图见 09）"]
+        H1["POST /hitl/resume<br/>resume_hitl · admin"]
+        H1 --> H2[graph.get_state]
+        H2 -->|无| ERR[No pending thread]
+        H2 -->|有| H3{approved?}
+        H3 -->|否| H4[update_state 拒答]
+        H4 --> END_R([返回 rejected])
+        H3 -->|是| H5[update_state hitl_approved=true]
+        H5 --> H6["graph.invoke(None)<br/>从 interrupt 续跑"]
+        H6 --> H7[hitl_gate → rewrite → retrieve → generate → grade]
+        H7 --> H8[append assistant 最终消息]
+        H8 --> END_OK([返回完整 answer JSON])
+    end
+
+    %% ②③④ 前半在 ask_stream_async()；① 写 user、SSE 包装、首轮标题在 api._gen
+    %% 与 07 差异：astream+SSE、先写 user；⑤ 为另一次 HTTP，非同一条 SSE 连接内续跑
