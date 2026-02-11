@@ -83,6 +83,9 @@ uv run python scripts/check_ollama.py
 # 3. 运行任意项目（Streamlit UI）
 cd project_01_rag_agent
 uv run streamlit run app.py
+补充优化：
+1.uv pip install -r requirements.txt
+2.uv run streamlit run app.py
 
 # 4. 启动 API 服务
 uv run uvicorn api:app --port 8000 --reload

@@ -242,7 +242,6 @@ def build_rag_graph():
     g.add_edge("rewrite", "retrieve")
     g.add_edge("retrieve", "generate")
     g.add_edge("generate", "grade")
-
     g.add_conditional_edges("grade", _should_retry, {
         "rewrite": "rewrite",
         END: END
