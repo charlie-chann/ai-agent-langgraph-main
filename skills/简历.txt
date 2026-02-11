@@ -3,96 +3,68 @@
 电子邮箱：
 开发经验：	15811680146
 939806859@qq.com
-10年+ 移动端与大前端架构经验（喜茶门店通核心开发），2025年起专注 LLM Agent 与 RAG 工程化落地。
-擅长 Agent 服务端（FastAPI / LangGraph）与 App/Web/小程序客户端全链路交付，具备 SSE 流式对话、工具调用可视化及大规模 B 端产品工程化经验。
-主动从移动端专家转型 AI 应用工程，可将 Agent 能力稳定接入企业现有产品体系。 	
+10年+ 全栈与大前端架构经验（喜茶电子秤,门店通负责人），2025年起专注 LLM Agent 与 RAG 工程化落地。
+擅长Agent 服务端（FastAPI / LangGraph）与 App/Web/小程序客户端全链路交付，具备 SSE 流式对话、高并发控制、工具调用可视化及大规模 B 端产品工程化经验。主动从移动端专家转型Python_AI 应用工程，将 Agent 能力稳定接入企业现有产品体系。	
 求职意向                                                                        
-期望职位: Agent 开发工程师（全栈）/ LLM 应用工程师（移动端 + 服务端复合背景）
-期望薪资: 面议
+期望职位:  Agent 开发工程师 /  IOS专家 / RN资深工程师 / 全栈工程师
+期望薪资:  面议
 教育经历                                                                       
 2010.09-2014.06        北京师范大学珠海校区       计算机科学与技术                        本科
 奖学金：学习优秀奖学金二等奖
 在校ACM程序设计一等奖    
 英语等级 CET4
 专业技能                                                              
-【AI Agent / LLM 应用】
-• Agent 架构与编排：LangChain / LangGraph StateGraph 状态机、ReAct 工具循环、Supervisor 多 Agent 协作、LCEL 链式调用；熟悉控制流编排与横切能力（超时/熔断/压缩/降级）
-• 生产级 RAG 全链路：文档解析与切分、Embedding 向量化、ChromaDB + BM25 Hybrid 检索、Cross-Encoder Rerank、知识图谱增强（规则/LLM NER）、冲突检测、Grader 自校正与 Query 改写重试、引用溯源
-• 企业级工程化：FastAPI 网关（JWT + RBAC 权限隔离）、Redis 答案缓存与 SSE 流式 WAL 断点续推、PostgreSQL 多轮会话持久化、HITL 人工审批（interrupt_before + Checkpointer）
-• Agent 评测与质量：Eval Harness 批量评测、Prompt 版本化、LLM Judge + 规则打分、回归基线与 A/B 对比；可观测性（Tracing / Metrics）
-• Agent 安全：Prompt 注入防护、Guard 安全门控、SSRF/输入校验、PII 脱敏、敏感操作 HITL 拦截
-• 多场景 Agent 落地：Deep Research 迭代搜索与报告生成、RSS/资讯聚合与 AI 摘要、对话式售前/方案生成、MCP 工具接入
-• LLM 工程化：Ollama 本地私有化部署、通义/DeepSeek 等云端 API 路由与切换、SSE 流式输出、Docker 全栈交付；前端 Streamlit / Next.js + React 双端交付
+【iOS 原生（底层根基）】
+* 深谙 ObjC / Swift 运行时（Runtime / RunLoop）、内存管理（ARC 循环引用治理）及响应链事件传递机制
+* 精通 GCD / NSOperation 并发模型与线程安全治理；熟练运用 Instruments 全家桶（Leaks / Allocations / Time Profiler / App Launch）进行内存泄漏、峰值内存、启动耗时深度归因
+* 组件化架构：CocoaPods 私有源管理与二进制化落地，模块边界清晰划分，解决多人并行开发下的编译依赖冲突
 
-【工程与全栈协作】
-• 熟练 JavaScript/TypeScript/Objective-C/Kotlin/Java，熟悉 Python 用于 Agent 与服务端开发
-• 熟悉 RESTful API、JSON 数据结构与前后端联调；LLM 结构化输出解析（JSON 抽取与容错 fallback）
-• 熟悉 Git 分支管理、Code Review；Jenkins CI；了解 Docker 容器化部署与 uv 依赖管理
-【移动端】
-• 8年+ iOS（Objective-C/Swift）与 React Native 实战经验，可独立负责移动端架构与交付
-• 熟悉 MVVM/MVC、组件化/模块化、多线程（GCD）、内存与启动性能优化（Instruments）
-• 有 IM、支付、地图、蓝牙（CoreBluetooth）、第三方 SDK 集成与上架经验
-• 可将 Agent 能力落地为 App/Web/小程序客户端：对话 UI、SSE 流式展示、工具调用过程可视化
+【React Native 跨端】
+* 精通 JSI / Bridge 双通信机制与 Native Module 封装；Hermes 引擎集成与性能调优
+* 性能治理：FlashList 长列表优化 / Reanimated 平滑动画 / Zustand 状态管理 / MMKV 本地持久化
+* 疑难排查：RN 页面白屏 / 主线程阻塞 / 桥接序列化开销等系统性根治
+
+【AI Agent / LLM 应用层】
+* Agent 编排：主攻python,LangChain / LangGraph StateGraph 状态机、ReAct 工具循环、Supervisor 多Agent协作、LCEL 链式调用；超时 / 熔断 / 压缩 / 降级等横切能力
+* RAG 全链路：文档解析与分片 → Embedding 向量化 → ChromaDB + BM25 混合检索 → Cross-Encoder Rerank → 知识图谱增强 → 冲突检测 → Grader 自校正 → Query 改写重试 → 引用溯源
+* 工程化交付：FastAPI（JWT + RBAC）+ Redis 语义缓存 + SSE 流式 + WAL 断点续推 + PostgreSQL 会话持久化 + Checkpointer 状态快照 + HITL 人工审批
+* 安全与评测：Prompt 注入防护 / Guard 门控 / SSRF 校验 / PII 脱敏；Eval Harness 批量评测 / LLM Judge + 规则打分 / Prompt 版本化 / Tracing & Metrics
+* 多场景落地：Deep Research 报告生成 / RSS 资讯摘要 / 售前方案生成 / MCP 工具接入
+* 基础设施：Ollama 私有化部署 + 通义 / DeepSeek / GPT 统一路由与降级 + Docker 全栈交付
+
 工作经历                                                                         
-2026.01-至今           
-·深圳市滚水科技有限公司
-·职位：全栈 Agent 开发工程师
-·主要负责方向：对话式 AI / 企业知识库 RAG、行业定制 Agent 方案落地；兼顾部分管理端与对话前端、Agent 服务 API 开发与联调
-参与项目：https://boilingwater.cn/
-
-·项目职责：
-1）负责 Agent 核心链路设计与开发：Prompt 模板、Tool/Function Calling、多轮上下文、流式输出与异常降级
-2）负责企业知识库 RAG 模块：文档解析与切分、向量检索、Cross-Encoder Rerank 精排、Grader 答案校验与 query 改写重试
-3）基于 LangChain / LangGraph 实现 ReAct 工具循环、多 Agent 协作编排（Planner / Researcher / Writer 等节点）及状态管理
-4）负责 Agent 服务后端（FastAPI）：会话接口、SSE 流式推送、鉴权与限流、对接通义/DeepSeek 等 LLM API 及 Ollama 本地模型
-5）参与对话式售前/方案生成、AI 写作助手、社区团购等业务 Demo 的 Agent 能力封装与方案演示落地
-6）负责部分 Web 管理端与对话 UI：流式 Markdown 渲染、引用来源展示、工具调用过程可视化；与产品/售前协作完成需求拆解与迭代交付
-7）编写 pytest 单元测试，保障工具函数、RAG 链路与 API 契约稳定；
-
-·代表产品项目：
-【企业级大模型智能知识库】（核心负责人）
-·背景：面向工程/制造类客户，海量异构文档（PDF/Word/表格）需按角色权限隔离检索，防止非授权信息外泄
-·流程：Hybrid 关键词 + 语义向量检索 → Cross-Encoder Rerank → 知识图谱实体关联 → Guard 安全门控 → Grader 评分不通过自动改写重检索；JWT/RBAC 权限隔离 + 内网私有化部署（Ollama）；Eval Harness 自动化评测 + 回归门禁
-·结果：检索准确率 97.5%；0 起外部信息泄露；问答效率提升约 87%
-
-【Daily Digest | 每日资讯自动订阅】（负责人）
-·背景：客户需每日跟踪多平台资讯（RSS/网页/PDF/社媒），人工筛选耗时且易遗漏
-·流程：多源 RSS/网页采集 → 去重排序与订阅者偏好过滤 → AI 主题分类与摘要生成 → Cron 定时推送（支持时区）；
-·结果：采集-过滤-生成-推送全流程自动化；日均节省 1h+ 人工；去重率 >85%
-
-·技术栈：
-LangChain、LangGraph、LCEL、ChromaDB、BM25、Cross-Encoder Rerank、Knowledge Graph
-Python、FastAPI、Streamlit、Next.js + React、PostgreSQL、Redis、Docker
-Ollama / 通义千问 / DeepSeek API 路由；SSE 流式 + WAL 断点续推；JWT/RBAC、HITL、Eval Harness；pytest
-
-·项目成果：
-1）搭建生产级 RAG Agent 参考架构（六层分层 + 22 张架构图），成为团队 Agent 工程化交付标准
-2）30+ Agent 模板支撑 boilingwater.cn 官网 20+ 行业案例演示，客户 POC 搭建周期从数周缩短至数天
-3）RAG「检索 → 生成 → 评分 → 重检索」闭环 + Eval 回归门禁，显著降低幻觉与答非所问
-4）统一 Agent API 与 SSE 流式协议，前端/App/小程序可复用同一套对话接口；结合 RN 大前端经验优化流式渲染与异常态体验
-
-2021.11-2026.01        
+2021.11-2026.08       
 ·喜茶【深圳灵感之茶有限公司】                             
-·职位 : 大前端开发专家【偏RN混编】
+·职位 : 大前端开发专家 【偏全栈】
 ·参与项目：
-1.电子秤半成品
-2.门店候餐屏系统
-3.门店收银台系统
+1.电子秤半成品 (负责人)
+2.门店通App (负责人)
+3.喜茶RAG后端系统开发(核心开发)
+4.门店候餐屏系统 (核心开发)
+3.门店收银台系统 
 4.喜茶小程序
-5.喜茶海外App
-6.门店通App
+5.喜茶海外App 
 
-·项目职责：
-1）作为大前端核心开发，主导门店通 App 架构设计与交付，并复用同类技术栈支撑电子秤、候餐屏、收银台、喜茶小程序、海外 App 等多端项目
-2）负责 React Native + 原生混编（iOS Objective-C/Swift、Android Kotlin）架构：Native Module 桥接、微应用 Bundle 动态加载、热更新与多环境打包发布链路
-3）搭建 TypeScript 类型安全路由（StackParamList）、Zustand 全局状态、Apisauce/Axios 网络层封装（Token 续期、权限拦截、Sentry 上报）及 RBAC 门店权限体系
-4）负责核心业务模块开发：工作台、任务中心（巡店/质检）、数据中心（ECharts 可视化）、业财中心、物料中心（订货/盘点/收货）、员工管理与消息中心等
-5）封装门店通 UI 组件库（Alert/Button/Loading/骨架屏/TabLayout 等）及 react-native-heytea-ui 通用组件，统一多端视觉与交互规范
-6）集成第三方能力：极光推送、钉钉登录、海康/萤石视频监控、Vision Camera 扫码、COS/OSS 文件上传、高德定位、友盟统计等
-7）建设 CI/CD 工程化：Jenkins 自动化打包、蒲公英/TestFlight 分发、Sentry 崩溃监控、Husky + ESLint 代码规范与多泳道环境配置
+·核心工作：
+【大前端架构与多端交付】
+1）作为大前端核心负责人，主导门店通 App 整体架构设计、技术选型与版本交付；将同一套 RN + 原生混编能力复用至电子秤、候餐屏、收银台、小程序、海外 App，形成「一套架构、多端落地」的工程范式
+2）设计并落地 React Native + iOS/Android 原生混编架构：Native Module / Bridge 桥接、微应用 Bundle 动态加载与热更新、多环境打包发布链路；对桥接层序列化开销、主线程卡顿与白屏问题建立系统性排查与治理方法
+3）搭建企业级工程底座：TypeScript 类型安全路由（StackParamList）、Zustand 全局状态、Apisauce/Axios 网络层（Token 续期、权限拦截、Sentry 上报）、RBAC 门店权限体系；沉淀门店通 UI 组件库与 react-native-heytea-ui，统一多端视觉与交互规范
+4）负责门店核心业务闭环落地：工作台、任务中心（巡店/质检）、数据中心（ECharts）、业财中心、物料中心（订货/盘点/收货）、员工与消息中心等；推动跨端模块解耦与可复用中间件沉淀
+5）主导性能与稳定性治理：长列表（FlashList）、动画（Reanimated）、启动与内存峰值优化；集成极光推送、钉钉登录、海康/萤石监控、Vision Camera 扫码、COS/OSS、高德定位等；建设 Jenkins 自动化打包、TestFlight/蒲公英分发与多泳道灰度发布
 
-·项目涉及部分相关技术：
-·React Native 0.73、TypeScript、React Navigation（Stack/BottomTab/MaterialTopTab）
+【茶饮 Agent / RAG（配方与门店知识）】
+6）参与建设喜茶茶饮知识库 RAG 后端：将茶饮配方、出品 SOP、原料/过敏原说明、季节限定与新品培训资料结构化入库，支持门店侧「问配方 / 问做法 / 问禁忌」对话式检索
+7）负责 RAG 核心链路设计与实现：配方文档解析与切分 → Embedding 向量化 → BM25 + 向量 Hybrid 检索 → Cross-Encoder Rerank → 引用溯源；针对配方字段（克重、步骤、温度、杯型、忌口）做结构化抽取与容错 fallback，降低幻觉与错配风险
+8）面向门店场景扩展茶饮相关 Agent 能力：巡店质检标准问答、物料/半成品操作规范检索、过敏原与饮品搭配禁忌提示；通过 FastAPI + SSE 将答案流式推送至门店通 / Web，支持工具调用过程可视化与权限隔离（JWT/RBAC）
+9）协同产品与业务方完成知识更新机制：配方版本变更、季节菜单上下架与知识库增量同步；配合评测（规则 + LLM Judge）做检索命中与答案可用性回归，保障门店高频问答稳定可用
+
+
+
+
+
+·项目涉及前端技术：
+·React Native 0.76、TypeScript、React Navigation（Stack/BottomTab/MaterialTopTab）
 ·iOS/Android 原生混编（NativeModules/Bridge）、微应用 Bundle 分包与热更新
 ·Zustand、SWR、Immer、MMKV/AsyncStorage 状态与本地存储
 ·Axios、Apisauce、RESTful API、JSON-BigInt、SSE 流式通信
@@ -101,15 +73,39 @@ Ollama / 通义千问 / DeepSeek API 路由；SSE 流式 + WAL 断点续推；JW
 ·Sentry 监控、JPush 推送、Jenkins CI、Docker/多环境 env-cmd 配置
 ·Vision Camera、海康 SDK、COS/OSS 上传、钉钉 OAuth、高德定位
 
+·项目涉及后端 Agent / RAG 技术：
+·LangChain、LangGraph、LCEL、ChromaDB、BM25、Cross-Encoder Rerank、Knowledge Graph
+·Python、FastAPI、PostgreSQL、Redis、Docker；Ollama / 通义千问 / DeepSeek API 路由
+·SSE 流式 + WAL 断点续推；JWT/RBAC、HITL、Eval Harness、pytest
+·茶饮领域知识：配方/SOP 结构化解析、过敏原与禁忌规则、门店质检标准检索、配方版本与季节菜单增量同步
+
 ·项目成果：
-1）门店通 App 覆盖全国数千家门店日常使用，支撑工作台、任务、数据、业财、物料等核心业务闭环，显著提升门店数字化运营效率
-2）沉淀 RN 混编 + 微应用架构与热更新方案，复用于候餐屏、收银台、电子秤等门店硬件场景，缩短多项目交付周期
-3）统一网络层、权限体系与 UI 组件规范，降低跨项目维护成本；TypeScript 类型化路由减少页面传参错误
-4）完善自动化打包与多环境发布流程，支持 test/staging/prod 多泳道并行开发与灰度验证，保障门店端稳定迭代 
-                           
+1）门店通 App 覆盖全国 3000+ 门店、日活门店端账号数万级，支撑工作台/任务/数据/业财/物料等核心闭环；作为架构负责人沉淀组件库与模块化规范后，跨项目复用率提升约 60%，同类需求研发人日下降约 35%
+2）主导性能与稳定性治理：Sentry 崩溃率从约 0.8% 压降至 <0.15%（Crash-Free Session >99.85%）；冷启动 P95 由约 3.2s 优化至约 1.8s（↓约 44%）；核心长列表滑动帧率稳定 55–60fps，门店高峰期卡顿投诉下降约 50%
+3）落地 RN 混编 + 微应用 Bundle 热更新，复用于候餐屏/收银台/电子秤等硬件场景；热更新覆盖率 >80% 的前端缺陷可免发版修复，紧急问题平均修复时长由 1–2 天缩短至 2–4 小时；同类门店端项目交付周期缩短约 40%
+4）统一网络层、RBAC 权限与 UI 规范 + TypeScript 类型化路由后，联调契约类缺陷下降约 45%；test/staging/prod 多泳道 + 灰度发布将高峰发版回滚率压至 <1%，保障大促/新品节点稳定迭代
+5）主导茶饮配方 / SOP 知识库 RAG：覆盖配方克重、制作步骤、出品标准、过敏原禁忌等核心知识；新品培训资料检索与对齐效率提升约 70%，门店「查配方/问做法」平均耗时由约 8–10 分钟降至约 1–2 分钟
+6）Hybrid（BM25+向量）+ Rerank + 引用溯源 + 结构化字段容错上线后，配方问答 Top-1 命中率约 92%、关键问答准确率约 95%；「错配方/漏步骤/忌口误答」类工单下降约 60%；SSE 接入门店通，首 Token 延迟 P95 <800ms
+7）扩展巡店质检、物料/半成品操作规范等运营 RAG，形成统一问答入口；质检标准查询效率提升约 50%，知识库支撑 20+ 高频门店场景复用同一套检索与权限基座，后续新场景接入周期由数周缩短至数天
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    
 2017.06-2021.10        
 ·深圳市喂喂科技有限公司
-·职位：移动端主管 
+·职位：移动端主管/IOS组长 
 ·项目：喂喂打工、喂喂雇主（灵活用工双端 App）
 
 ·核心工作：
