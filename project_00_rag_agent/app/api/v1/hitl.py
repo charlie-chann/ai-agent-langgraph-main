@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import TokenPayload, get_conversation_store, require_permission
+from app.api.deps import TokenPayload, require_permission
 from app.schemas.hitl import HITLResumeRequest
-from app.services.rag_service import resume_hitl
+from app.services.hitl_service import resume_hitl_conversation
 
 router = APIRouter(tags=["hitl"])
 
@@ -15,15 +15,4 @@ async def hitl_resume(
     req: HITLResumeRequest,
     user: TokenPayload = Depends(require_permission("hitl_approve")),
 ):
-    result = resume_hitl(req.thread_id, approved=req.approved)
-    if req.approved and result.get("answer"):
-        store = get_conversation_store()
-        conv = store.get_conversation(req.thread_id, user.sub)
-        if conv:
-            store.append_message(
-                req.thread_id,
-                "assistant",
-                result["answer"],
-                metadata={"hitl_resumed": True, "request_id": result.get("request_id")},
-            )
-    return result
+    return resume_hitl_conversation(req.thread_id, approved=req.approved, user_sub=user.sub)

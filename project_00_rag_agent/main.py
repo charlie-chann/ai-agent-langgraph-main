@@ -11,17 +11,13 @@ from fastapi import FastAPI
 
 from app.api.errors import register_exception_handlers
 from app.api.v1 import router as v1_router
-from app.agent.graph.checkpointer import get_checkpointer
 from app.gateway.rate_limit import rate_limit_middleware
-from app.infrastructure.persistence.conversations import get_conversation_store
-from app.services.warmup_service import warmup
+from app.services.warmup_service import startup
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    warmup()
-    get_checkpointer()
-    get_conversation_store().setup()
+    startup()
     yield
 
 

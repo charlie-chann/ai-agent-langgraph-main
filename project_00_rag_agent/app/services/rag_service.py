@@ -1,12 +1,12 @@
 """
-agent.py — project_00_rag_agent 对外公共 API
+rag_service.py — RAG 问答用例编排（原根目录 agent.py）
 
 【职责】
-封装 LangGraph RAG 工作流的同步/流式问答入口，以及 HITL 恢复、启动预热、
-运行态统计等运维接口；供 api.py、测试脚本、外部服务调用。
+封装 LangGraph RAG 工作流的同步/流式问答入口，以及 HITL 恢复、运行态统计；
+供 services/api 层、测试脚本、外部服务调用。
 
 【设计原因】
-1. 与 graph/ 分层：图构建与节点逻辑在 graph/ 包，本模块只做「组装 + 缓存 + 返回格式」
+1. 与 app/agent/graph 分层：图构建与节点逻辑在 agent 包，本模块只做「组装 + 缓存 + 返回格式」
 2. ask() 使用 LangGraph invoke；ask_stream() 使用 astream（updates + custom token）
 3. ask_stream() 与 ask() 共用 Redis 缓存与全图能力（含 grade 重试、HITL）；先 cache_get，未命中再压缩历史
 4. Redis 缓存键按 question + roles 去重，HITL 中断或出错时不写缓存，避免脏数据
@@ -35,7 +35,6 @@ from app.agent.graph.state import RAGState
 from app.infrastructure.cache.redis_cache import cache_get, cache_key, cache_set
 from app.gateway.request_context import get_request_id, new_request_id
 from app.infrastructure.persistence.stream_wal import append_event, begin_stream, finalize_stream
-from app.retrieval.retriever import rebuild_bm25_from_chroma, retrieve_with_kg
 
 
 def _base_state(

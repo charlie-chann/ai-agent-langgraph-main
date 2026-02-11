@@ -73,3 +73,10 @@ class ValidationError(RAGError):
 
     code = "VALIDATION_ERROR"
     status_code = 400
+
+
+class NotFoundError(RAGError):
+    """资源不存在（如会话 ID 无效）。"""
+
+    code = "NOT_FOUND"
+    status_code = 404

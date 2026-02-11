@@ -9,136 +9,23 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 
 from app.api.deps import TokenPayload, get_conversation_store, require_permission
-from app.core.compression import dict_history_to_messages
+from app.core.exceptions import NotFoundError
 from app.core.stream_sse import consume_wal_sse, parse_last_event_id
 from app.core.streaming import CancelToken
 from app.gateway.request_context import new_request_id
 from app.infrastructure.observability.metrics import inc
-from app.infrastructure.persistence.conversations import messages_as_chat_history
 from app.infrastructure.persistence.stream_wal import get_stream_status
 from app.schemas.chat import ChatRequest, ConversationChatRequest, CreateConversationRequest
-from app.services.rag_service import (
-    ask,
-    ask_stream_async,
-    get_cached_ask,
-    get_stream_task,
-    start_wal_stream_producer,
+from app.services.chat_service import (
+    ensure_conversation,
+    history_loader_for,
+    persist_assistant_from_meta,
+    run_chat,
 )
+from app.services.rag_service import ask_stream_async, get_stream_task, start_wal_stream_producer
 from config import settings
 
 router = APIRouter(tags=["chat"])
-
-
-def _persist_assistant_from_meta(
-    store,
-    conversation_id: str,
-    meta: dict,
-    *,
-    full_answer: str,
-    history_len: int,
-    user_message: str,
-) -> None:
-    assistant_meta = {
-        k: meta.get(k)
-        for k in ("sources", "latency_ms", "grade", "request_id", "hitl_pending", "cached", "stream_id")
-        if meta.get(k) is not None
-    }
-    final_answer = meta.get("answer") or full_answer
-    store.append_message(conversation_id, "assistant", final_answer, metadata=assistant_meta)
-    if meta.get("cached"):
-        inc("cache_hits")
-    if meta.get("hitl_pending"):
-        inc("hitl_pending")
-    if history_len == 0:
-        title = user_message.strip().replace("\n", " ")[:80]
-        store.touch_conversation(conversation_id, title=title or "New chat")
-
-
-def _ensure_conversation(user: TokenPayload, conversation_id: Optional[str]) -> str:
-    store = get_conversation_store()
-    if conversation_id:
-        conv = store.get_conversation(conversation_id, user.sub)
-        if not conv:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        return conversation_id
-    conv = store.create_conversation(user.sub)
-    return conv["conversation_id"]
-
-
-def _load_history_from_store(conversation_id: str) -> list:
-    raw = get_conversation_store().list_messages(conversation_id)
-    return dict_history_to_messages(messages_as_chat_history(raw))
-
-
-def _run_chat(
-    *,
-    user: TokenPayload,
-    conversation_id: str,
-    message: str,
-    hitl_approved: bool,
-    use_cache: bool,
-) -> dict:
-    store = get_conversation_store()
-    new_request_id()
-    inc("requests_total")
-    is_first_turn = len(store.list_messages(conversation_id)) == 0
-
-    cached = get_cached_ask(
-        message,
-        user_roles=[user.role, "public"],
-        conversation_id=conversation_id,
-        use_cache=use_cache,
-    )
-    if cached is not None:
-        store.append_message(conversation_id, "user", message)
-        assistant_meta = {
-            k: cached.get(k)
-            for k in ("sources", "latency_ms", "grade", "request_id", "hitl_pending", "cached")
-            if cached.get(k) is not None
-        }
-        store.append_message(conversation_id, "assistant", cached.get("answer", ""), metadata=assistant_meta)
-        if is_first_turn:
-            title = message.strip().replace("\n", " ")[:80]
-            store.touch_conversation(conversation_id, title=title or "New chat")
-        if cached.get("cached"):
-            inc("cache_hits")
-        cached["role"] = user.role
-        cached["conversation_id"] = conversation_id
-        cached["thread_id"] = conversation_id
-        return cached
-
-    history = _load_history_from_store(conversation_id)
-    result = ask(
-        message,
-        history,
-        user_roles=[user.role, "public"],
-        thread_id=conversation_id,
-        conversation_id=conversation_id,
-        hitl_approved=hitl_approved,
-        use_cache=use_cache,
-    )
-
-    store.append_message(conversation_id, "user", message)
-    assistant_meta = {
-        k: result.get(k)
-        for k in ("sources", "latency_ms", "grade", "request_id", "hitl_pending", "cached")
-        if result.get(k) is not None
-    }
-    store.append_message(conversation_id, "assistant", result.get("answer", ""), metadata=assistant_meta)
-
-    if is_first_turn:
-        title = message.strip().replace("\n", " ")[:80]
-        store.touch_conversation(conversation_id, title=title or "New chat")
-
-    if result.get("cached"):
-        inc("cache_hits")
-    if result.get("hitl_pending"):
-        inc("hitl_pending")
-
-    result["role"] = user.role
-    result["conversation_id"] = conversation_id
-    result["thread_id"] = conversation_id
-    return result
 
 
 @router.post("/conversations")
@@ -164,12 +51,13 @@ async def get_conversation_messages(
     conversation_id: str,
     user: TokenPayload = Depends(require_permission("chat")),
 ):
-    store = get_conversation_store()
-    if not store.get_conversation(conversation_id, user.sub):
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    try:
+        ensure_conversation(user.sub, conversation_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     return {
         "conversation_id": conversation_id,
-        "messages": store.list_messages(conversation_id),
+        "messages": get_conversation_store().list_messages(conversation_id),
     }
 
 
@@ -180,9 +68,13 @@ async def conversation_chat(
     user: TokenPayload = Depends(require_permission("chat")),
 ):
     """生产推荐：服务端从 DB 加载 chat_history，客户端只发 message。"""
-    _ensure_conversation(user, conversation_id)
-    return _run_chat(
-        user=user,
+    try:
+        ensure_conversation(user.sub, conversation_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    return run_chat(
+        user_sub=user.sub,
+        user_role=user.role,
         conversation_id=conversation_id,
         message=req.message,
         hitl_approved=req.hitl_approved,
@@ -198,7 +90,11 @@ async def conversation_chat_stream(
     user: TokenPayload = Depends(require_permission("chat")),
     last_event_id_header: Optional[str] = Header(default=None, alias="Last-Event-ID"),
 ):
-    _ensure_conversation(user, conversation_id)
+    try:
+        ensure_conversation(user.sub, conversation_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
     store = get_conversation_store()
     rid = new_request_id()
     inc("requests_total")
@@ -222,7 +118,7 @@ async def conversation_chat_stream(
                 stream_id=stream_id,
                 conversation_id=conversation_id,
                 question=req.message,
-                history_loader=lambda: _load_history_from_store(conversation_id),
+                history_loader=history_loader_for(conversation_id),
                 user_roles=[user.role, "public"],
                 hitl_approved=req.hitl_approved,
                 use_cache=req.use_cache,
@@ -265,12 +161,11 @@ async def conversation_chat_stream(
                 status = get_stream_status(stream_id) or {}
                 if status.get("status") == "complete" and not persisted:
                     if meta.get("answer") or full_answer:
-                        _persist_assistant_from_meta(
-                            store,
+                        persist_assistant_from_meta(
                             conversation_id,
                             meta,
                             full_answer=full_answer,
-                            history_len=is_first_turn if not is_resume else 1,
+                            history_len=0 if is_first_turn and not is_resume else 1,
                             user_message=req.message,
                         )
                         persisted = True
@@ -280,7 +175,7 @@ async def conversation_chat_stream(
             offset = after_offset
             async for token in ask_stream_async(
                 req.message,
-                history_loader=lambda: _load_history_from_store(conversation_id),
+                history_loader=history_loader_for(conversation_id),
                 user_roles=[user.role, "public"],
                 thread_id=conversation_id,
                 conversation_id=conversation_id,
@@ -301,12 +196,11 @@ async def conversation_chat_stream(
                     full_answer += token
                     offset += 1
                     yield f"id: {offset}\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
-            _persist_assistant_from_meta(
-                store,
+            persist_assistant_from_meta(
                 conversation_id,
                 meta,
                 full_answer=full_answer,
-                history_len=is_first_turn if not is_resume else 1,
+                history_len=0 if is_first_turn and not is_resume else 1,
                 user_message=req.message,
             )
             offset += 1
@@ -335,7 +229,11 @@ async def resume_conversation_stream(
     after: int = 0,
 ):
     """SSE 断线续推：带 Last-Event-ID 或 ?after=N 从 WAL offset 精确续推。"""
-    _ensure_conversation(user, conversation_id)
+    try:
+        ensure_conversation(user.sub, conversation_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
     meta = get_stream_status(stream_id)
     if not meta:
         raise HTTPException(status_code=404, detail="Stream not found or expired")
@@ -381,9 +279,10 @@ async def chat(
     """
     if req.chat_history:
         logger.warning("chat_history in request body is deprecated; using server-side conversation store")
-    conversation_id = _ensure_conversation(user, req.conversation_id)
-    return _run_chat(
-        user=user,
+    conversation_id = ensure_conversation(user.sub, req.conversation_id)
+    return run_chat(
+        user_sub=user.sub,
+        user_role=user.role,
         conversation_id=conversation_id,
         message=req.message,
         hitl_approved=req.hitl_approved,
@@ -397,7 +296,7 @@ async def chat_stream(
     request: Request,
     user: TokenPayload = Depends(require_permission("chat")),
 ):
-    conversation_id = _ensure_conversation(user, req.conversation_id)
+    conversation_id = ensure_conversation(user.sub, req.conversation_id)
     fake = ConversationChatRequest(
         message=req.message,
         hitl_approved=req.hitl_approved,

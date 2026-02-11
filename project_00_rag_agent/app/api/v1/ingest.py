@@ -7,9 +7,9 @@ from typing import List
 from fastapi import APIRouter, Depends, File, UploadFile
 
 from app.api.deps import TokenPayload, require_permission
-from app.infrastructure.cache.redis_cache import cache_delete_prefix
-from app.retrieval.ingest import ingest_files, sanitize_filename, validate_upload
+from app.retrieval.ingest import sanitize_filename, validate_upload
 from app.schemas.ingest import IngestResponse
+from app.services.ingest_service import ingest_paths
 
 router = APIRouter(tags=["ingest"])
 
@@ -30,8 +30,7 @@ async def ingest(
         dest.write_bytes(content)
         saved.append(dest)
 
-    result = ingest_files(saved, acl_roles=[user.role, "public"])
-    cache_delete_prefix("rag:ask:")
+    result = ingest_paths(saved, acl_roles=[user.role, "public"])
     return IngestResponse(
         files_loaded=result.get("files_loaded", 0),
         chunks_created=result.get("chunks_created", 0),
