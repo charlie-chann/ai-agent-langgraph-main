@@ -1,0 +1,8 @@
+langchain>=1.0
+langchain-core>=0.3
+langchain-ollama>=0.2
+streamlit>=1.40
+fastapi>=0.115
+uvicorn>=0.32
+loguru>=0.7
+pytest>=8.3
