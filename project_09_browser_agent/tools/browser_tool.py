@@ -1,4 +1,13 @@
-# tools/browser_tool.py — Web page fetcher using requests+BS4 (simulated) or Playwright
+# tools/browser_tool.py — 浏览器工具集（Agent 可调用的 @tool 函数）
+#
+# 【职责】提供 6 个 LangChain 工具，供 plan_and_act 节点的 LLM 选择和 ToolNode 执行。
+# 【两种模式】
+#   默认：requests + BeautifulSoup 抓静态 HTML（无需安装浏览器）
+#   USE_PLAYWRIGHT=true：真实无头浏览器（支持 JS 渲染，本项目默认未启用）
+#
+# 【工具列表】
+#   navigate_to / get_page_text / extract_links / search_in_page
+#   get_current_url / web_search_and_open
 """
 支持两种模式：
 1. Simulated（默认，无需安装浏览器）：使用 requests + BeautifulSoup 抓取静态页面
@@ -49,7 +58,12 @@ _REQUEST_HEADERS = {
 
 
 def _validate_url(url: str) -> str:
-    """Validate and normalize a URL. Raises ValueError for invalid/unsafe URLs."""
+    """
+    校验 URL 安全性：仅允许 http/https，拦截 localhost 和内网地址。
+
+    Raises:
+        ValueError: URL 格式非法或为私有地址时
+    """
     url = url.strip()
     if not url:
         raise ValueError("URL 不能为空")
@@ -67,7 +81,12 @@ def _validate_url(url: str) -> str:
 
 
 def _fetch_page(url: str) -> tuple[str, str, str]:
-    """Fetch page HTML, return (title, text_summary, html)."""
+    """
+    抓取网页并解析：HTTP GET → BeautifulSoup 去噪 → 提取标题和正文。
+
+    Returns:
+        (title, text_summary, html) 三元组
+    """
     url = _validate_url(url)
     try:
         resp = requests.get(url, headers=_REQUEST_HEADERS, timeout=_TIMEOUT, allow_redirects=True)
@@ -90,20 +109,18 @@ def _fetch_page(url: str) -> tuple[str, str, str]:
 
 
 def _truncate(text: str, max_chars: int = 3000) -> str:
+    """截断过长文本，防止超大页面导致 LLM 上下文溢出。"""
     if len(text) <= max_chars:
         return text
     return text[:max_chars] + f"\n...[内容已截断，共 {len(text)} 字符]"
 
 
-# ── Tools ─────────────────────────────────────────────────────────────────────
+# ── LangChain 工具：供 Agent 的 ToolNode 调用 ────────────────────────────────
+# 所有 @tool 装饰的函数会被 bind_tools 绑定给 LLM，LLM 决定调哪个
 
 @tool
 def navigate_to(url: str) -> str:
-    """导航到指定网页，返回页面标题和内容摘要。
-    Args:
-        url: 要访问的完整 URL（必须包含 http:// 或 https://）
-    Returns: 页面标题 + 前3000字符的文本内容
-    """
+    """导航到指定网页，返回页面标题和内容摘要；同时更新会话状态 current_url。"""
     try:
         title, text, html = _fetch_page(url)
         _SESSION_STATE.update({
@@ -120,12 +137,7 @@ def navigate_to(url: str) -> str:
 
 @tool
 def get_page_text(url: str, max_chars: int = 5000) -> str:
-    """获取网页纯文本内容，适合需要详细阅读页面全文的场景。
-    Args:
-        url: 目标页面 URL
-        max_chars: 最大返回字符数（默认 5000）
-    Returns: 页面纯文本
-    """
+    """获取网页完整纯文本，适合需要详细阅读全文的场景。"""
     try:
         _, text, _ = _fetch_page(url)
         return _truncate(text, max_chars)
@@ -135,12 +147,7 @@ def get_page_text(url: str, max_chars: int = 5000) -> str:
 
 @tool
 def extract_links(url: str, filter_pattern: str = "") -> str:
-    """提取网页中的所有链接。
-    Args:
-        url: 目标页面 URL
-        filter_pattern: 可选，过滤链接的关键词（如 "about", "contact"）
-    Returns: 链接列表（每行一个，格式为 "文字 → URL"）
-    """
+    """提取页面所有链接，可选 filter_pattern 按关键词过滤。"""
     try:
         _, _, html = _fetch_page(url)
         soup = BeautifulSoup(html, "lxml")
@@ -176,12 +183,7 @@ def extract_links(url: str, filter_pattern: str = "") -> str:
 
 @tool
 def search_in_page(query: str, url: str = "") -> str:
-    """在当前/指定页面中搜索包含关键词的段落。
-    Args:
-        query: 搜索关键词
-        url: 可选，指定页面URL（不提供则使用当前页面）
-    Returns: 包含关键词的段落列表
-    """
+    """在指定页面（或当前已导航页面）中搜索包含关键词的段落。"""
     if url:
         try:
             _, text, _ = _fetch_page(url)
@@ -206,18 +208,14 @@ def search_in_page(query: str, url: str = "") -> str:
 
 @tool
 def get_current_url() -> str:
-    """返回当前已导航页面的 URL。"""
+    """返回当前会话已导航的页面 URL（需先调用 navigate_to）。"""
     url = _SESSION_STATE.get("current_url")
     return f"当前页面: {url}" if url else "尚未导航到任何页面"
 
 
 @tool
 def web_search_and_open(query: str) -> str:
-    """使用 DuckDuckGo 搜索并打开第一个结果页面。
-    Args:
-        query: 搜索关键词
-    Returns: 第一个结果页面的内容摘要
-    """
+    """DuckDuckGo 搜索关键词，自动打开第一个结果并返回页面摘要。"""
     # DuckDuckGo instant answer / HTML search
     search_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(query)}"
     try:
@@ -246,7 +244,7 @@ def web_search_and_open(query: str) -> str:
         return f"❌ 搜索失败: {e}"
 
 
-# Expose all tools as a list
+# 导出给 agent.py 的 ToolNode 使用
 BROWSER_TOOLS = [
     navigate_to,
     get_page_text,

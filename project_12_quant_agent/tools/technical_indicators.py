@@ -1,4 +1,7 @@
-# tools/technical_indicators.py — 技术指标计算（纯Python，不依赖 TA-Lib）
+# tools/technical_indicators.py — 技术指标计算（纯 Python，不依赖 TA-Lib）
+#
+# 【主入口】compute_signals() — 计算 SMA/EMA/RSI/MACD/布林带/ATR 并生成买卖信号
+# 【被谁调用】agent.analyze_stock()
 """
 实现常用技术指标：
 - SMA (简单移动平均)
@@ -37,12 +40,14 @@ class TechnicalSignals:
 
 
 def _sma(prices: list[float], period: int) -> Optional[float]:
+    """简单移动平均（SMA）：最近 period 天收盘价的算术平均。"""
     if len(prices) < period:
         return None
     return sum(prices[-period:]) / period
 
 
 def _ema(prices: list[float], period: int) -> Optional[float]:
+    """指数移动平均（EMA）：近期价格权重更高，用于 MACD 计算。"""
     if len(prices) < period:
         return None
     k = 2 / (period + 1)
@@ -53,6 +58,7 @@ def _ema(prices: list[float], period: int) -> Optional[float]:
 
 
 def _rsi(prices: list[float], period: int = 14) -> Optional[float]:
+    """相对强弱指数（RSI）：>70 超买，<30 超卖。"""
     if len(prices) < period + 1:
         return None
     changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
@@ -67,6 +73,7 @@ def _rsi(prices: list[float], period: int = 14) -> Optional[float]:
 
 
 def _bollinger_bands(prices: list[float], period: int = 20, std_mult: float = 2.0):
+    """布林带：返回 (上轨, 中轨, 下轨)，价格突破轨道为信号。"""
     if len(prices) < period:
         return None, None, None
     window = prices[-period:]
@@ -77,6 +84,7 @@ def _bollinger_bands(prices: list[float], period: int = 20, std_mult: float = 2.
 
 
 def _atr(highs: list[float], lows: list[float], closes: list[float], period: int = 14) -> Optional[float]:
+    """真实波幅（ATR）：衡量价格波动幅度，用于止损设置。"""
     if len(closes) < period + 1:
         return None
     trs = []
@@ -92,7 +100,12 @@ def compute_signals(
     highs: list[float] | None = None,
     lows: list[float] | None = None,
 ) -> TechnicalSignals:
-    """计算全套技术指标并生成信号。"""
+    """
+    【主入口】计算全套技术指标并生成买卖信号列表。
+
+    被 agent.analyze_stock() 调用，纯 Python 计算，不经过 LLM。
+    返回 TechnicalSignals 含 SMA/RSI/MACD/布林带等 + trend 综合判断。
+    """
     if not closes or len(closes) < 2:
         return TechnicalSignals(ticker=ticker, close_price=0.0)
 

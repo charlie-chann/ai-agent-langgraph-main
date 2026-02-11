@@ -1,4 +1,9 @@
-# tools/route_optimizer.py — 配送路径优化工具（最近邻启发式算法）
+# tools/route_optimizer.py — 配送路径优化工具（TSP 最近邻启发式，纯算法）
+#
+# 【主入口】
+#   optimize_route()    → 从仓库出发，访问所有站点后返回，最小化总距离
+#   detect_delay_risk() → 检测是否超出各站点配送时间窗口
+# 【被谁调用】agent.run_route_optimization()
 from __future__ import annotations
 
 import math
@@ -49,14 +54,9 @@ class RouteResult:
 
 def optimize_route(depot: DeliveryStop, stops: list[DeliveryStop]) -> RouteResult:
     """
-    最近邻启发式算法优化配送路径（从仓库出发，访问所有站点后返回）。
+    【主入口】最近邻启发式 TSP：每次选离当前位置最近的未访问站点。
 
-    Args:
-        depot: 仓库起点
-        stops: 待配送站点列表
-
-    Returns:
-        RouteResult
+    算法：仓库 → 最近站点 → 下一个最近 → ... → 回仓库
     """
     if not stops:
         return RouteResult(
@@ -104,7 +104,10 @@ def optimize_route(depot: DeliveryStop, stops: list[DeliveryStop]) -> RouteResul
 def detect_delay_risk(stops: list[DeliveryStop], route_result: RouteResult,
                       start_hour: int = 8) -> list[dict]:
     """
-    根据路径和时间窗口检测潜在延误风险。
+    【主入口】沿优化路径模拟到达时间，检测是否超出各站点 time_window。
+
+    Returns:
+        风险列表，每项含 stop_id、预计到达时间、超出原因
     """
     risks = []
     current_hour = float(start_hour)

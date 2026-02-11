@@ -1,4 +1,8 @@
-# tools/content_generator.py — 小红书内容生成（图文笔记）
+# tools/content_generator.py — 小红书图文笔记生成工具
+#
+# 【主入口】generate_xiaohongshu_post() — 根据话题/关键词/风格生成结构化笔记
+# 【被谁调用】agent.run_generate_post()
+# 【说明】使用模板引擎生成内容（非 LLM），含标题/正文/标签/配图建议/合规检查
 from __future__ import annotations
 
 import re
@@ -10,6 +14,7 @@ from config import MAX_CONTENT_LENGTH, MAX_TITLE_LENGTH, MAX_TAGS, PLATFORM, PRO
 
 _PROHIBITED_WORDS = ["赌博", "诈骗", "传销", "假冒伪劣", "违禁"]
 
+# 各领域预设话题标签池
 _TOPIC_HASHTAGS: dict[str, list[str]] = {
     "美妆": ["护肤心得", "好物分享", "美妆教程", "素颜神器", "skincare"],
     "穿搭": ["穿搭分享", "outfit", "时尚穿搭", "学生穿搭", "通勤穿搭"],
@@ -26,16 +31,17 @@ _SECTION_EMOJIS = ["✨", "💡", "🌟", "📌", "🎯", "💪", "🔥", "🌸"
 
 @dataclass
 class XiaohongshuPost:
-    """小红书笔记数据类。"""
+    """小红书笔记结构化数据，to_dict() 供 UI/API 展示。"""
     title: str
     content: str
     hashtags: list[str]
     topic: str
-    image_suggestions: list[str]   # 图片拍摄建议
+    image_suggestions: list[str]   # 配图拍摄建议（如「产品正面图」）
     word_count: int
-    compliance_check: dict = field(default_factory=dict)
+    compliance_check: dict = field(default_factory=dict)  # 违禁词检查结果
 
     def to_dict(self) -> dict:
+        """转为中文字段名的 dict，供 Streamlit / API 直接返回。"""
         return {
             "平台": PLATFORM,
             "标题": self.title,
@@ -49,11 +55,13 @@ class XiaohongshuPost:
 
 
 def _check_compliance(text: str) -> dict:
+    """检查标题+正文是否含违禁词，返回 passed 和 violations 列表。"""
     violations = [w for w in _PROHIBITED_WORDS if w in text] if PROHIBITED_WORDS_CHECK else []
     return {"passed": len(violations) == 0, "violations": violations}
 
 
 def _sanitize(text: str) -> str:
+    """清理控制字符和 HTML 标签。"""
     text = re.sub(r'[\x00-\x1f\x7f]', '', text)
     return re.sub(r'<[^>]+>', '', text)
 
@@ -61,14 +69,24 @@ def _sanitize(text: str) -> str:
 def generate_xiaohongshu_post(
     topic: str,
     keywords: list[str] | None = None,
-    style: str = "lifestyle",  # "lifestyle" | "tutorial" | "review"
+    style: str = "lifestyle",  # lifestyle | tutorial | review
 ) -> XiaohongshuPost:
-    """生成小红书图文笔记。"""
+    """
+    【主入口】生成完整小红书笔记。
+
+    Args:
+        topic: 领域/话题，如「护肤」「穿搭」
+        keywords: 关键词列表，融入标题和正文
+        style: 笔记风格 — lifestyle(日常) / tutorial(教程) / review(测评)
+
+    Returns:
+        XiaohongshuPost 含标题、正文、标签、配图建议、合规检查结果
+    """
     topic = _sanitize(topic)[:30]
     keywords = [_sanitize(k)[:20] for k in (keywords or [])[:5]]
     kw_str = "、".join(keywords) if keywords else topic
 
-    # 标题（吸睛 + 关键词）
+    # 按风格选择标题模板
     title_templates = {
         "lifestyle": f"分享我的{topic}日常 | {kw_str}真的绝了✨",
         "tutorial": f"保姆级{topic}教程 | 新手也能轻松搞定🎯",
@@ -78,7 +96,7 @@ def generate_xiaohongshu_post(
     if len(title) > MAX_TITLE_LENGTH:
         title = title[:MAX_TITLE_LENGTH - 1] + "…"
 
-    # 正文（结构化分段）
+    # 按风格生成结构化正文
     em = _SECTION_EMOJIS[len(topic) % len(_SECTION_EMOJIS)]
     if style == "tutorial":
         body = (
@@ -120,7 +138,6 @@ def generate_xiaohongshu_post(
         )
         images = ["日常生活场景图", "物品摆拍图", "氛围感照片"]
 
-    # 截断
     if len(body) > MAX_CONTENT_LENGTH:
         body = body[:MAX_CONTENT_LENGTH - 3] + "..."
 

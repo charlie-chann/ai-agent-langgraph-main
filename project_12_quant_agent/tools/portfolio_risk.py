@@ -1,4 +1,7 @@
-# tools/portfolio_risk.py — 投资组合风险计算
+# tools/portfolio_risk.py — 投资组合风险计算（纯 Python）
+#
+# 【主入口】compute_portfolio_risk() — 计算夏普比率、最大回撤、VaR、Beta
+# 【被谁调用】agent.compute_portfolio()
 """
 计算投资组合风险指标：
 - 夏普比率（Sharpe Ratio）
@@ -37,12 +40,12 @@ def compute_portfolio_risk(
     trading_days: int = 252,
 ) -> PortfolioRisk:
     """
-    计算组合风险指标。
-    
+    【主入口】根据日收益率序列计算组合风险指标。
+
     Args:
-        returns: 日收益率列表（如 [0.01, -0.02, 0.005, ...]）
-        benchmark_returns: 基准（如标普500）日收益率
-        trading_days: 年化基数
+        returns: 日收益率列表，如 [0.01, -0.02, 0.005, ...]
+        benchmark_returns: 基准（如标普500）日收益率，用于算 Beta
+        trading_days: 年化基数，默认 252 个交易日
     """
     if len(returns) < 10:
         return PortfolioRisk()

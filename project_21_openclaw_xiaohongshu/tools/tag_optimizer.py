@@ -1,9 +1,14 @@
-# tools/tag_optimizer.py — 小红书标签优化
+# tools/tag_optimizer.py — 小红书话题标签优化工具
+#
+# 【主入口】optimize_tags() — 根据话题和关键词推荐最优标签组合
+# 【被谁调用】agent.run_optimize_tags()
+# 【算法】基于预设标签热度池 _TAG_POOL，组合热门标签 + 细分标签，估算互动得分
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
+# 标签热度池（模拟数据，数值越大表示越热门）
 _TAG_POOL: dict[str, int] = {
     "好物推荐": 20000, "种草": 25000, "生活方式": 18000, "穿搭": 22000,
     "护肤": 19000, "减脂": 16000, "学习打卡": 14000, "职场穿搭": 12000,
@@ -15,11 +20,12 @@ _TAG_POOL: dict[str, int] = {
 
 @dataclass
 class TagResult:
+    """标签优化结果，to_dict() 供 UI/API 展示。"""
     platform: str
-    recommended_tags: list[str]
-    trending_tags: list[str]
-    niche_tags: list[str]
-    engagement_score: float
+    recommended_tags: list[str]   # 最终推荐的标签组合
+    trending_tags: list[str]      # 当前热门标签
+    niche_tags: list[str]         # 与话题相关的细分标签
+    engagement_score: float       # 预估互动得分（0~100）
 
     def to_dict(self) -> dict:
         return {
@@ -32,15 +38,19 @@ class TagResult:
 
 
 def optimize_tags(platform: str, topic: str, keywords: list[str] | None = None, max_tags: int = 5) -> TagResult:
-    """推荐最优标签组合。"""
+    """
+    【主入口】为指定话题推荐最优标签组合。
+
+    策略：2个热门标签 + 相关细分标签，按热度估算 engagement_score。
+    """
     topic_clean = re.sub(r'[^\w\u4e00-\u9fff]', '', topic)[:20]
     keywords = [re.sub(r'[^\w\u4e00-\u9fff]', '', k)[:20] for k in (keywords or [])]
 
     sorted_tags = sorted(_TAG_POOL.items(), key=lambda x: x[1], reverse=True)
     top_n = max(1, len(sorted_tags) // 5)
-    trending = [t[0] for t in sorted_tags[:top_n]]
+    trending = [t[0] for t in sorted_tags[:top_n]]  # 热度最高的标签
     related = [t[0] for t in sorted_tags if any(kw in t[0] for kw in keywords + [topic_clean])]
-    niche = [t for t in related if t not in trending]
+    niche = [t for t in related if t not in trending]  # 与话题相关但非热门的标签
 
     recommended = trending[:2] + niche[:max_tags - 2]
     for t, _ in sorted_tags:

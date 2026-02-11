@@ -1,4 +1,9 @@
-# app.py — Browser Automation Agent Streamlit UI
+# app.py — Browser Automation Agent Streamlit Web UI
+#
+# 【职责】提供可视化聊天界面，用户输入自然语言任务，实时展示 Agent 执行进度和报告。
+# 【执行流程】
+#   用户输入 → sanitize_instruction → stream_browser_task（graph.stream）
+#   → 按节点更新状态（思考中 / 调工具 / 写报告）→ 展示 final_report
 import sys
 import time
 from pathlib import Path
@@ -13,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ── 侧边栏：模型配置 + 示例任务 ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🌐 Browser Agent")
     st.markdown("*浏览器自动化智能体*")
@@ -53,7 +58,7 @@ with st.sidebar:
         if st.button(ex, key=f"ex_{ex[:20]}"):
             st.session_state["task_input"] = ex
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── 主区域：聊天历史 + 任务输入 ───────────────────────────────────────────────
 st.title("🌐 Browser Automation Agent")
 st.caption("基于 LangGraph ReAct 的网页自动化智能体，支持搜索、抓取、提取和报告生成")
 
@@ -88,7 +93,7 @@ if task and task != st.session_state.get("_last_task", ""):
         st.markdown(task)
     st.session_state.chat_history.append({"role": "user", "content": task})
 
-    # Run agent
+    # 调用 Agent：走 graph.stream，每完成一个节点更新 UI 状态
     with st.chat_message("assistant"):
         status_placeholder = st.empty()
         steps_placeholder = st.empty()
@@ -112,6 +117,7 @@ if task and task != st.session_state.get("_last_task", ""):
             final_report = ""
 
             t0 = time.time()
+            # stream_browser_task 内部调用 graph.stream，逐节点 yield 事件
             for event in stream_browser_task(instruction):
                 for node_name, node_state in event.items():
                     if node_name == "plan_and_act":

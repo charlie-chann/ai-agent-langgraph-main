@@ -1,4 +1,10 @@
-# api.py — Browser Agent FastAPI service with SSE streaming
+# api.py — Browser Agent FastAPI HTTP 服务
+#
+# 【职责】对外暴露 REST + SSE 接口，供前端或其他服务调用浏览器 Agent。
+# 【接口】
+#   GET  /health       → 健康检查
+#   POST /task         → 同步执行（内部 graph.invoke）
+#   POST /task/stream  → SSE 流式执行（内部 graph.stream）
 from __future__ import annotations
 
 import json
@@ -28,38 +34,43 @@ app.add_middleware(
 )
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# ── 请求/响应数据模型 ─────────────────────────────────────────────────────────
 class TaskRequest(BaseModel):
+    """任务请求体：自然语言指令 + 最大 ReAct 步数。"""
     instruction: str
     max_steps: int = 10
 
     @field_validator("instruction")
     @classmethod
     def validate_instruction(cls, v: str) -> str:
+        """校验并清洗指令，拦截注入攻击。"""
         return sanitize_instruction(v)
 
     @field_validator("max_steps")
     @classmethod
     def validate_max_steps(cls, v: int) -> int:
+        """限制步数在 1~20 之间。"""
         return max(1, min(v, 20))
 
 
 class TaskResponse(BaseModel):
-    final_report: str
-    pages_visited: list[str]
-    step_count: int
-    total_latency_ms: float
+    """同步任务完成后的响应结构。"""
+    final_report: str       # Markdown 报告
+    pages_visited: list[str]  # 访问过的 URL 列表
+    step_count: int         # 实际执行步数
+    total_latency_ms: float # 总耗时（毫秒）
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── API 端点 ─────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
+    """健康检查，供负载均衡 / K8s 探针使用。"""
     return {"status": "ok", "service": "browser-agent"}
 
 
 @app.post("/task", response_model=TaskResponse)
 def run_task(req: TaskRequest):
-    """Run a browser task synchronously and return the final report."""
+    """同步执行任务：等待 graph.invoke 跑完后一次性返回报告。"""
     try:
         import config
         config.BROWSER_MAX_STEPS = req.max_steps
@@ -80,7 +91,7 @@ def run_task(req: TaskRequest):
 
 @app.post("/task/stream")
 async def stream_task(req: TaskRequest):
-    """Stream browser task execution as SSE events."""
+    """SSE 流式执行：每完成一个图节点推送一次事件，前端可实时显示进度。"""
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
             import config

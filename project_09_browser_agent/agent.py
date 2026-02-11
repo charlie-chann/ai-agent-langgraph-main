@@ -1,4 +1,12 @@
 # agent.py — Browser Automation Agent (LangGraph ReAct loop)
+#
+# 【架构】LangGraph 三节点 ReAct 循环：
+#   plan_and_act（LLM 思考）→ tools（执行浏览器工具）→ 回到 plan_and_act
+#   达到停止条件后 → synthesize（生成报告）→ END
+#
+# 【执行入口】
+#   graph.invoke()  → run_browser_task()  → API POST /task（同步）
+#   graph.stream()  → stream_browser_task() → Streamlit UI / API POST /task/stream
 from __future__ import annotations
 
 import time
@@ -18,29 +26,31 @@ from tools.browser_tool import BROWSER_TOOLS
 from tools.task_parser import parse_task, sanitize_instruction
 
 
-# ── State ─────────────────────────────────────────────────────────────────────
+# ── State：LangGraph 各节点共享的状态字典 ─────────────────────────────────────
 class BrowserState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], operator.add]
-    instruction: str
-    step_count: int
-    pages_visited: list[str]
-    raw_content: str
-    final_report: str
-    total_latency_ms: float
-    step_log: list[dict]
+    messages: Annotated[Sequence[BaseMessage], operator.add]  # 对话历史，add 表示自动追加
+    instruction: str          # 用户原始任务指令
+    step_count: int           # ReAct 已执行步数，用于 max_steps 保护
+    pages_visited: list[str]  # 已访问 URL 列表（从工具结果提取）
+    raw_content: str          # 工具返回内容的累积拼接，供最终报告使用
+    final_report: str         # synthesize 节点产出的 Markdown 报告
+    total_latency_ms: float   # 端到端耗时
+    step_log: list[dict]      # 每步预览与耗时，供 UI 展示
 
 
 # ── LLM + Tools ──────────────────────────────────────────────────────────────
 def _llm_with_tools() -> ChatOllama:
+    """带工具绑定的 LLM，供 plan_and_act 节点输出 tool_calls。"""
     llm = ChatOllama(
         model=DEFAULT_MODEL,
         base_url=OLLAMA_BASE_URL,
         temperature=TEMPERATURE,
     )
-    return llm.bind_tools(BROWSER_TOOLS)
+    return llm.bind_tools(BROWSER_TOOLS)  # bind_tools 让 LLM 知道可调哪些工具
 
 
 def _llm_plain() -> ChatOllama:
+    """纯文本 LLM，供 synthesize 节点生成报告（不再调工具）。"""
     return ChatOllama(
         model=DEFAULT_MODEL,
         base_url=OLLAMA_BASE_URL,
@@ -48,9 +58,9 @@ def _llm_plain() -> ChatOllama:
     )
 
 
-# ── Nodes ─────────────────────────────────────────────────────────────────────
+# ── Nodes：图节点函数（仅在被 graph.invoke/stream 调度时才真正执行）────
 def node_plan_and_act(state: BrowserState) -> BrowserState:
-    """Main ReAct node: thinks and decides which tool to call."""
+    """ReAct 思考节点：llm.invoke 决定下一步调哪个浏览器工具。"""
     t0 = time.perf_counter()
     step = state.get("step_count", 0)
     logger.info(f"[BrowserAgent] Step {step + 1}/{BROWSER_MAX_STEPS}")
@@ -62,7 +72,7 @@ def node_plan_and_act(state: BrowserState) -> BrowserState:
     if not history:
         history = [HumanMessage(content=state["instruction"])]
 
-    response = llm.invoke([system_msg] + history)
+    response = llm.invoke([system_msg] + history)  # 节点内 LLM 调用，非 graph.invoke
 
     elapsed = round((time.perf_counter() - t0) * 1000)
     log = state.get("step_log", [])
@@ -80,9 +90,9 @@ def node_plan_and_act(state: BrowserState) -> BrowserState:
 
 
 def node_tools(state: BrowserState) -> BrowserState:
-    """Execute tool calls and collect raw content."""
-    tool_node = ToolNode(BROWSER_TOOLS)
-    result = tool_node.invoke(state)
+    """工具执行节点：读取上一步 AI 的 tool_calls，真正抓网页/搜页面。"""
+    tool_node = ToolNode(BROWSER_TOOLS)  # 预构建工具执行器
+    result = tool_node.invoke(state)     # 执行工具，返回 ToolMessage
 
     # Track pages visited and accumulate raw content
     pages = state.get("pages_visited", [])
@@ -103,7 +113,7 @@ def node_tools(state: BrowserState) -> BrowserState:
 
 
 def node_synthesize_report(state: BrowserState) -> BrowserState:
-    """Synthesize all collected content into a final report."""
+    """报告合成节点：把 raw_content 交给 LLM 流式生成最终 Markdown 报告。"""
     t0 = time.perf_counter()
     logger.info("[BrowserAgent] Synthesizing final report...")
 
@@ -111,12 +121,12 @@ def node_synthesize_report(state: BrowserState) -> BrowserState:
     chain = REPORT_PROMPT | _llm_plain()
 
     full_report = ""
-    for chunk in chain.stream({
+    for chunk in chain.stream({  # chain.stream：逐 token 流式生成（内部用）
         "task_type": task.task_type,
         "instruction": state["instruction"],
         "raw_content": state.get("raw_content", "（无收集内容）")[-6000:],
     }):
-        full_report += chunk.content
+        full_report += chunk.content  # 拼成完整报告后再写入 state
 
     elapsed = round((time.perf_counter() - t0) * 1000)
     log = state.get("step_log", [])
@@ -129,9 +139,9 @@ def node_synthesize_report(state: BrowserState) -> BrowserState:
     }
 
 
-# ── Routing ───────────────────────────────────────────────────────────────────
+# ── Routing：条件边路由函数（返回值决定下一跳节点名）────────────────────────
 def _should_continue(state: BrowserState) -> str:
-    """Route: continue tool loop or move to synthesis."""
+    """plan_and_act 之后的条件路由：继续调工具 or 进入 synthesize。"""
     messages = state.get("messages", [])
     if not messages:
         return "synthesize"
@@ -152,15 +162,16 @@ def _should_continue(state: BrowserState) -> str:
     return "synthesize"
 
 
-# ── Graph ─────────────────────────────────────────────────────────────────────
+# ── Graph：定义节点与边（compile 只编译，不执行；执行在 invoke/stream）────
 def build_graph() -> StateGraph:
-    graph = StateGraph(BrowserState)
+    graph = StateGraph(BrowserState)  # 创建空图，指定状态类型
 
+    # 注册节点：名字 → 函数（此时函数不会被调用）
     graph.add_node("plan_and_act", node_plan_and_act)
     graph.add_node("tools", node_tools)
     graph.add_node("synthesize", node_synthesize_report)
 
-    graph.set_entry_point("plan_and_act")
+    graph.set_entry_point("plan_and_act")  # 入口：每次 invoke 从这里开始
     # 节点判断：根据 LLM 输出决定走 tools 还是 synthesize
     graph.add_conditional_edges("plan_and_act", _should_continue, {
         "tools": "tools",
@@ -179,15 +190,16 @@ _GRAPH = None
 
 
 def get_graph():
+    """懒加载单例：compile 只做一次，后续 invoke/stream 复用同一图。"""
     global _GRAPH
     if _GRAPH is None:
         _GRAPH = build_graph()
     return _GRAPH
 
 
-# ── Public API ────────────────────────────────────────────────────────────────
+# ── Public API：对外暴露的同步/流式执行入口 ───────────────────────────────────
 def run_browser_task(instruction: str) -> dict:
-    """Run a browser automation task and return the final state."""
+    """同步执行：graph.invoke 跑完整张图后一次性返回最终 state。"""
     instruction = sanitize_instruction(instruction)
     logger.info(f"[BrowserAgent] Task: {instruction!r}")
 
@@ -203,12 +215,12 @@ def run_browser_task(instruction: str) -> dict:
     }
 
     graph = get_graph()
-    final = graph.invoke(initial_state)
+    final = graph.invoke(initial_state)  # ★ 整张图的唯一 invoke 入口
     return final
 
 
 def stream_browser_task(instruction: str):
-    """Stream browser task execution events."""
+    """流式执行：每完成一个节点 yield 一次，供 UI 实时更新进度。"""
     instruction = sanitize_instruction(instruction)
 
     initial_state: BrowserState = {
@@ -223,5 +235,5 @@ def stream_browser_task(instruction: str):
     }
 
     graph = get_graph()
-    for event in graph.stream(initial_state, stream_mode="updates"):
-        yield event
+    for event in graph.stream(initial_state, stream_mode="updates"):  # ★ UI 走这里
+        yield event  # 每次 yield 形如 {"plan_and_act": {...}} 或 {"tools": {...}}

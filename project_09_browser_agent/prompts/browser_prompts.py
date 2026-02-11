@@ -1,7 +1,11 @@
-# prompts/browser_prompts.py — LangChain prompt templates for Browser Agent
+# prompts/browser_prompts.py — Browser Agent 提示词模板
+#
+# 【职责】定义两个阶段的 LLM 提示词：
+#   PLANNER_PROMPT  → plan_and_act 节点：指导 Agent 如何选工具、搜网页
+#   REPORT_PROMPT   → synthesize 节点：把抓到的原始内容整理成 Markdown 报告
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-# ── Task Planning Prompt ─────────────────────────────────────────────────────
+# ── 任务规划提示词（ReAct 思考阶段使用）────────────────────────────────────
 PLANNER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """你是一个专业的浏览器自动化 Agent，擅长网页信息收集、内容提取和自动化任务执行。
 
@@ -26,10 +30,10 @@ PLANNER_PROMPT = ChatPromptTemplate.from_messages([
 - 所有操作须符合目标网站的 robots.txt 要求
 
 当你收集到足够信息时，请总结成报告格式输出。"""),
-    MessagesPlaceholder(variable_name="messages"),
+    MessagesPlaceholder(variable_name="messages"),  # 插入对话历史（含工具返回结果）
 ])
 
-# ── Report Synthesizer Prompt ────────────────────────────────────────────────
+# ── 报告合成提示词（synthesize 节点使用）────────────────────────────────────
 REPORT_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """你是专业的信息综合分析师。
 

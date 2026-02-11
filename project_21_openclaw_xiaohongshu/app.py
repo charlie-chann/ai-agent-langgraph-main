@@ -1,4 +1,9 @@
-# app.py — Streamlit UI for openclaw 小红书内容 Agent
+# app.py — openclaw 小红书内容 Agent Streamlit UI
+#
+# 【职责】提供三个功能 Tab + AI 运营顾问对话：
+#   Tab1 笔记生成  → run_generate_post()
+#   Tab2 标签优化  → run_optimize_tags()
+#   Tab3 发布排期  → run_plan_schedule() + stream_chat() 对话
 import streamlit as st
 
 st.set_page_config(
@@ -12,10 +17,11 @@ from config import DEFAULT_MODEL, OLLAMA_BASE_URL, PLATFORM, DAILY_POST_LIMIT
 from agent import run_generate_post, run_optimize_tags, run_plan_schedule, run_get_best_time, stream_chat
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = []          # AI 运营顾问对话历史
 if "generated_posts" not in st.session_state:
-    st.session_state.generated_posts = []
+    st.session_state.generated_posts = [] # 已生成笔记预览，供排期 Tab 使用
 
+# ── 侧边栏：平台参数 + 最佳发布时间 ─────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 📕 openclaw 小红书 Agent")
     st.caption("小红书图文笔记生成 · 标签优化 · 发布排期")
@@ -25,7 +31,7 @@ with st.sidebar:
     st.divider()
     st.markdown("### 📊 平台参数")
     st.metric("每日发布上限", DAILY_POST_LIMIT)
-    best_time = run_get_best_time()
+    best_time = run_get_best_time()  # 调用 schedule_tool 获取最佳时段
     st.markdown("**最佳发布时间**")
     for k, v in best_time.items():
         st.caption(f"{k}: {v}")
@@ -40,6 +46,7 @@ st.caption(f"Powered by **{DEFAULT_MODEL}** | 平台: {PLATFORM}")
 
 tab1, tab2, tab3 = st.tabs(["✍️ 笔记生成", "🏷️ 标签优化", "📅 发布排期"])
 
+# ── Tab1：生成小红书笔记 ─────────────────────────────────────────────────────
 with tab1:
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -55,7 +62,7 @@ with tab1:
         else:
             keywords = [k.strip() for k in keywords_raw.split(",") if k.strip()] if keywords_raw else None
             with st.spinner("生成笔记中..."):
-                result = run_generate_post(topic, keywords, style)
+                result = run_generate_post(topic, keywords, style)  # 调用 content_generator 工具
             st.success("✅ 笔记生成完成")
             with st.expander("📄 笔记内容", expanded=True):
                 st.markdown(f"### {result['标题']}")
@@ -66,24 +73,26 @@ with tab1:
                 col_b.metric("合规", "✅ 通过" if result["合规检查"]["passed"] else "❌ 违规")
                 st.markdown("**标签:** " + "  ".join(f"`{t}`" for t in result["标签"]))
                 st.markdown("**配图建议:** " + " · ".join(result.get("配图建议", [])))
-            st.session_state.generated_posts.append(result["正文"][:50])
+            st.session_state.generated_posts.append(result["正文"][:50])  # 保存预览供排期使用
 
+# ── Tab2：优化话题标签 ───────────────────────────────────────────────────────
 with tab2:
     topic_tag = st.text_input("话题", placeholder="例如: 护肤、穿搭", key="topic_tag")
     kw_tag = st.text_input("关键词", placeholder="例如: 精华, 防晒", key="kw_tag")
     if st.button("🔍 优化标签", type="primary"):
         if topic_tag:
             kws = [k.strip() for k in kw_tag.split(",") if k.strip()] if kw_tag else None
-            result = run_optimize_tags(topic_tag, kws)
+            result = run_optimize_tags(topic_tag, kws)  # 调用 tag_optimizer 工具
             st.metric("预估互动得分", result["预估互动得分"])
             st.markdown("**推荐标签:** " + "  ".join(f"`#{t}`" for t in result["推荐标签"]))
             st.markdown("**热门标签:** " + "  ".join(f"`#{t}`" for t in result["热门标签"]))
 
+# ── Tab3：发布排期 + AI 运营顾问对话 ─────────────────────────────────────────
 with tab3:
     if st.session_state.generated_posts:
         st.info(f"已有 {len(st.session_state.generated_posts)} 条待发布内容")
         if st.button("📅 生成发布计划", type="primary"):
-            result = run_plan_schedule(st.session_state.generated_posts)
+            result = run_plan_schedule(st.session_state.generated_posts)  # 调用 schedule_tool
             st.metric("下次发布", result["下一次发布"])
             st.dataframe(result["发布时间表"], use_container_width=True)
     else:
@@ -101,6 +110,7 @@ with tab3:
         with st.chat_message("assistant"):
             container = st.empty()
             full = ""
+            # stream_chat → llm.stream 逐 token 显示打字机效果
             for chunk in stream_chat(prompt):
                 full += chunk
                 container.markdown(full + "▌")

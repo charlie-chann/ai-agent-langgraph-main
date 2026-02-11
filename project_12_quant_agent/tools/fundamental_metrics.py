@@ -1,4 +1,7 @@
-# tools/fundamental_metrics.py — 基本面指标计算
+# tools/fundamental_metrics.py — 基本面指标计算（纯 Python，不依赖 LLM）
+#
+# 【主入口】compute_fundamental_metrics() — 计算 P/E、ROE、格雷厄姆数等
+# 【被谁调用】agent.analyze_stock() 在提供 fundamentals 参数时调用
 """
 计算股票基本面评估指标：
 - P/E 估值
@@ -52,19 +55,9 @@ def compute_fundamental_metrics(
     dividend_per_share: float = 0.0,
 ) -> FundamentalMetrics:
     """
-    计算基本面指标。
-    
-    Args:
-        price: 当前股价
-        eps: 每股收益
-        book_value_per_share: 每股净资产
-        revenue_current/prev: 当前/上期营收（百万）
-        eps_current/prev: 当期/上期EPS
-        total_equity: 股东权益（百万）
-        net_income: 净利润（百万）
-        total_debt: 总债务（百万）
-        free_cash_flow: 自由现金流（百万）
-        dividend_per_share: 每股股息
+    【主入口】根据财务数据计算基本面指标和风险标记（flags）。
+
+    输出 valuation 综合判断：undervalued / fair / overvalued
     """
     flags = []
     metrics = FundamentalMetrics(ticker=ticker)

@@ -1,4 +1,9 @@
-# tools/inventory_tool.py — 库存管理与预测工具
+# tools/inventory_tool.py — 库存管理与需求预测工具（纯算法，不经过 LLM）
+#
+# 【主入口】
+#   analyze_inventory()  → 分析库存状态，生成预警和补货建议
+#   forecast_demand()    → 加权移动平均需求预测
+# 【被谁调用】agent.run_inventory_analysis()
 from __future__ import annotations
 
 import math
@@ -20,7 +25,7 @@ class InventoryItem:
     reorder_point: int = 0  # 再订购点
 
     def __post_init__(self):
-        # 自动计算再订购点 = 前置时间内需求 + 安全库存（3天）
+        # 再订购点 = 前置期需求量 + 3天安全库存
         safety = math.ceil(self.daily_demand * 3)
         self.reorder_point = math.ceil(self.daily_demand * self.lead_time_days) + safety
 
@@ -61,10 +66,12 @@ class ReplenishmentOrder:
 
 def analyze_inventory(items: list[InventoryItem]) -> dict:
     """
-    分析库存状态，生成补货建议。
+    【主入口】遍历所有 SKU，生成库存预警和补货订单建议。
 
     Returns:
-        dict: 包含 summary、alerts、orders
+        summary: 总 SKU 数、紧急/低库存数量、库存总价值
+        alerts: 需要关注的 SKU 列表
+        replenishment_orders: 建议补货量、费用、预计到货日
     """
     alerts = []
     orders = []
@@ -109,14 +116,14 @@ def analyze_inventory(items: list[InventoryItem]) -> dict:
 
 def forecast_demand(history: list[float], forecast_days: int = 7) -> dict:
     """
-    简单移动平均需求预测。
+    【主入口】基于历史需求做加权移动平均预测。
 
     Args:
-        history: 历史每日需求列表（最近N天，新→旧）
-        forecast_days: 预测未来天数
+        history: 历史每日需求量（最近在前）
+        forecast_days: 预测未来几天
 
     Returns:
-        dict: 预测结果
+        daily_avg, forecast, trend(increasing/decreasing/stable), confidence
     """
     if len(history) < 3:
         avg = sum(history) / len(history) if history else 0
