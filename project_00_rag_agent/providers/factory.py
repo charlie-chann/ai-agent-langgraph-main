@@ -1,24 +1,18 @@
 """
-factory.py — LLM / Embedding 提供者工厂
+providers/factory.py — LLM / Embedding 提供者工厂（含模型分流）
 
 【职责】
 1. 根据 config 中的 llm_provider / embedding_provider 实例化对应 LangChain 模型
-2. 统一封装 Ollama 与 OpenAI 兼容后端的创建逻辑
-3. 与熔断器（circuit_breaker）联动：开路时快速失败，成功/失败时更新计数
+2. model routing：guard/rewrite/grade 走 aux 小模型，generate 走 generate 大模型
+3. 与熔断器（circuit_breaker）联动：开路时快速失败
 
-【设计原因】
-1. 工厂模式集中切换后端，业务代码只调用 get_chat_model / get_embeddings
-2. 延迟 import（函数内 import）避免未使用的 provider 包在启动时强依赖
-3. 熔断器防止下游 LLM/Embedding 持续故障时拖垮整个 API
-4. streaming 参数由调用方传入，同一工厂可服务流式与非流式场景
-
-【支持的 Provider】
-  llm_provider       — "ollama" | "openai"
-  embedding_provider — "ollama" | "openai"
+【ModelRole】
+  aux      — 非生成任务（guard / rewrite / grade），默认更小更快
+  generate — 最终回答生成，可用更大模型
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -27,25 +21,50 @@ from config import settings
 from core.circuit_breaker import embed_breaker, llm_breaker
 from core.exceptions import ServiceUnavailableError
 
+ModelRole = Literal["aux", "generate"]
 
-def get_chat_model(*, streaming: bool = False, model: Optional[str] = None) -> BaseChatModel:
+
+def _resolve_model(role: ModelRole, explicit: Optional[str]) -> str:
+    if explicit:
+        return explicit
+    if not settings.model_routing_enabled:
+        if settings.llm_provider == "openai":
+            return settings.openai_model
+        return settings.default_model
+
+    if settings.llm_provider == "openai":
+        if role == "aux":
+            return settings.openai_aux_model or settings.openai_model
+        return settings.openai_generate_model or settings.openai_model
+
+    if role == "aux":
+        return settings.ollama_aux_model or settings.default_model
+    return settings.ollama_generate_model or settings.default_model
+
+
+def get_chat_model(
+    *,
+    streaming: bool = False,
+    model: Optional[str] = None,
+    role: ModelRole = "generate",
+) -> BaseChatModel:
     """
     创建并返回聊天模型实例（ChatOpenAI 或 ChatOllama）。
 
-    - 熔断器开路 → ServiceUnavailableError
-    - model 未指定时使用 settings 中对应 provider 的默认模型
-    - 创建成功/失败分别调用 llm_breaker.record_success / record_failure
+    role=aux 时优先使用配置的轻量模型（guard/rewrite/grade）；
+    role=generate 时使用生成专用模型。
     """
     if llm_breaker.is_open():
         raise ServiceUnavailableError("LLM circuit breaker is open")
 
+    resolved = _resolve_model(role, model)
     provider = settings.llm_provider
     try:
         if provider == "openai":
             from langchain_openai import ChatOpenAI
 
             llm = ChatOpenAI(
-                model=model or settings.openai_model,
+                model=resolved,
                 api_key=settings.openai_api_key or None,
                 base_url=settings.openai_base_url,
                 temperature=settings.temperature,
@@ -56,7 +75,7 @@ def get_chat_model(*, streaming: bool = False, model: Optional[str] = None) -> B
             from langchain_ollama import ChatOllama
 
             llm = ChatOllama(
-                model=model or settings.default_model,
+                model=resolved,
                 base_url=settings.ollama_base_url,
                 temperature=settings.temperature,
                 streaming=streaming,
@@ -69,11 +88,7 @@ def get_chat_model(*, streaming: bool = False, model: Optional[str] = None) -> B
 
 
 def get_embeddings() -> Embeddings:
-    """
-    创建并返回 Embedding 模型实例（OpenAIEmbeddings 或 OllamaEmbeddings）。
-
-    逻辑与 get_chat_model 对称：熔断检查 → 按 provider 分支 → 更新 embed_breaker。
-    """
+    """创建并返回 Embedding 模型实例。"""
     if embed_breaker.is_open():
         raise ServiceUnavailableError("Embedding circuit breaker is open")
 
@@ -100,3 +115,13 @@ def get_embeddings() -> Embeddings:
     except Exception:
         embed_breaker.record_failure()
         raise
+
+
+def routing_status() -> dict:
+    """返回当前模型分流配置（/stats 可观测）。"""
+    return {
+        "enabled": settings.model_routing_enabled,
+        "provider": settings.llm_provider,
+        "aux_model": _resolve_model("aux", None),
+        "generate_model": _resolve_model("generate", None),
+    }

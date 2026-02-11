@@ -81,6 +81,24 @@ class Settings(BaseSettings):
     history_limit: int = 20               # 对话历史滑动窗口保留的最近消息条数
     summary_enabled: bool = Field(default=True, alias="SUMMARY_ENABLED")  # 是否启用历史摘要（预留）
 
+    # ── Model routing（小模型 aux / 大模型 generate）────────────────────────────
+    model_routing_enabled: bool = Field(default=True, alias="MODEL_ROUTING_ENABLED")
+    ollama_aux_model: str = Field(default="qwen2.5:1.5b", alias="OLLAMA_AUX_MODEL")
+    ollama_generate_model: str = Field(default="", alias="OLLAMA_GENERATE_MODEL")  # 空=default_model
+    openai_aux_model: str = Field(default="gpt-4o-mini", alias="OPENAI_AUX_MODEL")
+    openai_generate_model: str = Field(default="", alias="OPENAI_GENERATE_MODEL")  # 空=openai_model
+    skip_grade_for_simple: bool = Field(default=False, alias="SKIP_GRADE_FOR_SIMPLE")
+
+    # ── Stream / SSE resume ────────────────────────────────────────────────────
+    stream_resume_enabled: bool = Field(default=True, alias="STREAM_RESUME_ENABLED")
+    stream_wal_ttl_seconds: int = Field(default=3600, alias="STREAM_WAL_TTL_SECONDS")
+    stream_flush_chars: int = Field(default=12, alias="STREAM_FLUSH_CHARS")
+    stream_flush_interval_ms: int = Field(default=40, alias="STREAM_FLUSH_INTERVAL_MS")
+    stream_resume_poll_seconds: float = Field(default=30.0, alias="STREAM_RESUME_POLL_SECONDS")
+    stream_cancel_on_disconnect: bool = Field(
+        default=False, alias="STREAM_CANCEL_ON_DISCONNECT"
+    )  # False=断线后继续写 WAL 供续推
+
     # ── Timeouts (seconds) ───────────────────────────────────────────────────
     # 各外部调用超时（秒），防止 LLM/Embedding/Rerank 阻塞拖垮整个请求
     llm_timeout: float = 30.0

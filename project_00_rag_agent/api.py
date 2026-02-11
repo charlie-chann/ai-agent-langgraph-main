@@ -21,15 +21,26 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from agent import ask, ask_stream_async, get_stats, resume_hitl, startup
+from agent import (
+    ask,
+    ask_stream_async,
+    get_stats,
+    get_stream_task,
+    resume_hitl,
+    start_wal_stream_producer,
+    startup,
+)
+from core.stream_sse import consume_wal_sse, parse_last_event_id
+from config import settings
 from core.exceptions import RAGError
+from core.streaming import CancelToken
 from core.compression import dict_history_to_messages
 from middleware.auth import TokenPayload, authenticate_user, create_access_token, require_permission
 from middleware.rate_limit import rate_limit_middleware
@@ -38,7 +49,33 @@ from observability.metrics import inc, snapshot
 from storage.conversations import get_conversation_store, messages_as_chat_history
 from tools.ingest import ingest_files, sanitize_filename, validate_upload
 from core.circuit_breaker import llm_breaker, embed_breaker
+from storage.stream_wal import get_stream_status
 from tools.retriever import get_vectorstore
+
+
+def _persist_assistant_from_meta(
+    store,
+    conversation_id: str,
+    meta: dict,
+    *,
+    full_answer: str,
+    history_len: int,
+    user_message: str,
+) -> None:
+    assistant_meta = {
+        k: meta.get(k)
+        for k in ("sources", "latency_ms", "grade", "request_id", "hitl_pending", "cached", "stream_id")
+        if meta.get(k) is not None
+    }
+    final_answer = meta.get("answer") or full_answer
+    store.append_message(conversation_id, "assistant", final_answer, metadata=assistant_meta)
+    if meta.get("cached"):
+        inc("cache_hits")
+    if meta.get("hitl_pending"):
+        inc("hitl_pending")
+    if history_len == 0:
+        title = user_message.strip().replace("\n", " ")[:80]
+        store.touch_conversation(conversation_id, title=title or "New chat")
 
 
 @asynccontextmanager
@@ -83,6 +120,14 @@ class ConversationChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     hitl_approved: bool = False
     use_cache: bool = True
+    stream_id: Optional[str] = Field(
+        default=None,
+        description="续推已有流；与 Last-Event-ID 配合使用",
+    )
+    last_event_id: Optional[int] = Field(
+        default=None,
+        description="WAL offset；也可通过 Last-Event-ID 请求头传入",
+    )
 
 
 class HITLResumeRequest(BaseModel):
@@ -242,50 +287,181 @@ async def conversation_chat(
 async def conversation_chat_stream(
     conversation_id: str,
     req: ConversationChatRequest,
+    request: Request,
     user: TokenPayload = Depends(require_permission("chat")),
+    last_event_id_header: Optional[str] = Header(default=None, alias="Last-Event-ID"),
 ):
     _ensure_conversation(user, conversation_id)
     store = get_conversation_store()
-    new_request_id()
+    rid = new_request_id()
     inc("requests_total")
     history = _load_history_from_store(conversation_id)
-    store.append_message(conversation_id, "user", req.message)
+
+    after_offset = req.last_event_id if req.last_event_id is not None else parse_last_event_id(last_event_id_header)
+    resume_stream_id = req.stream_id
+    is_resume = bool(resume_stream_id and settings.stream_resume_enabled)
+
+    if is_resume:
+        meta = get_stream_status(resume_stream_id) or {}
+        if meta.get("conversation_id") not in (None, conversation_id):
+            raise HTTPException(status_code=400, detail="stream_id does not belong to this conversation")
+        stream_id = resume_stream_id
+    else:
+        store.append_message(conversation_id, "user", req.message)
+        stream_id = rid
+        if settings.stream_resume_enabled:
+            await start_wal_stream_producer(
+                stream_id=stream_id,
+                conversation_id=conversation_id,
+                question=req.message,
+                history=history,
+                user_roles=[user.role, "public"],
+                hitl_approved=req.hitl_approved,
+                use_cache=req.use_cache,
+            )
+
+    cancel = CancelToken()
+    use_wal = settings.stream_resume_enabled
 
     async def _gen():
         full_answer = ""
-        meta: dict = {}
-        async for token in ask_stream_async(
-            req.message,
-            history,
-            user_roles=[user.role, "public"],
-            thread_id=conversation_id,
-            conversation_id=conversation_id,
-            hitl_approved=req.hitl_approved,
-            use_cache=req.use_cache,
-        ):
-            if token.startswith("\n\n__META__"):
-                meta = json.loads(token.replace("\n\n__META__", ""))
-                yield f"data: {json.dumps({**meta, 'conversation_id': conversation_id}, ensure_ascii=False)}\n\n"
-            else:
-                full_answer += token
-                yield f"data: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
-        assistant_meta = {
-            k: meta.get(k)
-            for k in ("sources", "latency_ms", "grade", "request_id", "hitl_pending", "cached")
-            if meta.get(k) is not None
-        }
-        final_answer = meta.get("answer") or full_answer
-        store.append_message(conversation_id, "assistant", final_answer, metadata=assistant_meta)
-        if meta.get("cached"):
-            inc("cache_hits")
-        if meta.get("hitl_pending"):
-            inc("hitl_pending")
-        if len(history) == 0:
-            title = req.message.strip().replace("\n", " ")[:80]
-            store.touch_conversation(conversation_id, title=title or "New chat")
-        yield "data: [DONE]\n\n"
+        meta: dict = {"stream_id": stream_id, "conversation_id": conversation_id}
+        persisted = False
+        try:
+            if use_wal:
+                async for chunk in consume_wal_sse(
+                    stream_id,
+                    after_offset=after_offset,
+                    extra_meta={"conversation_id": conversation_id, "stream_id": stream_id},
+                    cancel=cancel,
+                ):
+                    if await request.is_disconnected():
+                        if settings.stream_cancel_on_disconnect:
+                            cancel.cancel()
+                        break
+                    yield chunk
+                    # 解析已 yield 内容以落库
+                    if chunk.startswith("id:"):
+                        lines = chunk.strip().split("\n")
+                        data_line = next((ln for ln in lines if ln.startswith("data:")), "")
+                        payload_raw = data_line[5:].strip()
+                        if payload_raw == "[DONE]":
+                            continue
+                        try:
+                            payload = json.loads(payload_raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if "token" in payload:
+                            full_answer += payload["token"]
+                        elif payload.get("__meta__") or "answer" in payload:
+                            meta.update(payload)
+                status = get_stream_status(stream_id) or {}
+                if status.get("status") == "complete" and not persisted:
+                    if meta.get("answer") or full_answer:
+                        _persist_assistant_from_meta(
+                            store,
+                            conversation_id,
+                            meta,
+                            full_answer=full_answer,
+                            history_len=len(history) if not is_resume else 1,
+                            user_message=req.message,
+                        )
+                        persisted = True
+                yield f"id: 0\ndata: [DONE]\n\n"
+                return
 
-    return StreamingResponse(_gen(), media_type="text/event-stream")
+            # 降级：无 WAL 时直连 ask_stream_async
+            offset = after_offset
+            async for token in ask_stream_async(
+                req.message,
+                history,
+                user_roles=[user.role, "public"],
+                thread_id=conversation_id,
+                conversation_id=conversation_id,
+                hitl_approved=req.hitl_approved,
+                use_cache=req.use_cache,
+                cancel=cancel,
+            ):
+                if await request.is_disconnected():
+                    if settings.stream_cancel_on_disconnect:
+                        cancel.cancel()
+                    break
+                if token.startswith("\n\n__META__"):
+                    meta = json.loads(token.replace("\n\n__META__", ""))
+                    offset += 1
+                    payload = {**meta, "conversation_id": conversation_id, "stream_id": stream_id}
+                    yield f"id: {offset}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                else:
+                    full_answer += token
+                    offset += 1
+                    yield f"id: {offset}\ndata: {json.dumps({'token': token}, ensure_ascii=False)}\n\n"
+            _persist_assistant_from_meta(
+                store,
+                conversation_id,
+                meta,
+                full_answer=full_answer,
+                history_len=len(history),
+                user_message=req.message,
+            )
+            offset += 1
+            yield f"id: {offset}\ndata: [DONE]\n\n"
+        finally:
+            if cancel.is_cancelled and settings.stream_cancel_on_disconnect:
+                task = get_stream_task(stream_id)
+                if task and not task.done():
+                    task.cancel()
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Stream-Id": stream_id,
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(_gen(), media_type="text/event-stream", headers=headers)
+
+
+@app.get("/conversations/{conversation_id}/stream/{stream_id}")
+async def resume_conversation_stream(
+    conversation_id: str,
+    stream_id: str,
+    request: Request,
+    user: TokenPayload = Depends(require_permission("chat")),
+    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-ID"),
+    after: int = 0,
+):
+    """SSE 断线续推：带 Last-Event-ID 或 ?after=N 从 WAL offset 精确续推。"""
+    _ensure_conversation(user, conversation_id)
+    meta = get_stream_status(stream_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Stream not found or expired")
+    if meta.get("conversation_id") != conversation_id:
+        raise HTTPException(status_code=400, detail="stream_id does not belong to this conversation")
+
+    offset = after or parse_last_event_id(last_event_id)
+    cancel = CancelToken()
+
+    async def _gen():
+        try:
+            async for chunk in consume_wal_sse(
+                stream_id,
+                after_offset=offset,
+                extra_meta={"conversation_id": conversation_id, "stream_id": stream_id},
+                cancel=cancel,
+            ):
+                if await request.is_disconnected():
+                    if settings.stream_cancel_on_disconnect:
+                        cancel.cancel()
+                    break
+                yield chunk
+            yield f"id: 0\ndata: [DONE]\n\n"
+        finally:
+            if cancel.is_cancelled:
+                pass
+
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Stream-Id": stream_id},
+    )
 
 
 @app.post("/chat")

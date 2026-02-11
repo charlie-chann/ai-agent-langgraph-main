@@ -25,7 +25,7 @@ from core.compression import trim_context_chunks
 from core.timeouts import run_with_timeout
 from graph.state import RAGState
 from prompts.rag_prompts import grade_prompt, guard_prompt, rag_prompt, rewrite_prompt
-from providers.factory import get_chat_model
+from providers.factory import ModelRole, get_chat_model
 from tools.conflict import detect_conflicts, format_conflicts
 from tools.retriever import retrieve_with_kg
 
@@ -34,13 +34,13 @@ from tools.retriever import retrieve_with_kg
 # 内部工具 — LLM 链调用
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _invoke_chain(prompt, inputs: dict, *, label: str) -> str:
+def _invoke_chain(prompt, inputs: dict, *, label: str, role: ModelRole = "aux") -> str:
     """
     执行 prompt | chat_model 链并返回 strip 后的文本内容。
 
-    通过 run_with_timeout 限制单次 LLM 调用时长，label 用于日志与超时告警定位。
+    guard/rewrite/grade 默认 role=aux（小模型）；generate 节点单独传 role=generate。
     """
-    chain = prompt | get_chat_model()
+    chain = prompt | get_chat_model(role=role)
     result = run_with_timeout(lambda: chain.invoke(inputs), settings.llm_timeout, label=label)
     return result.content.strip()
 
@@ -160,7 +160,7 @@ def node_generate(state: RAGState) -> RAGState:
             "chat_history": state.get("chat_history") or [],
         }
         if writer is not None:
-            chain = rag_prompt | get_chat_model(streaming=True)
+            chain = rag_prompt | get_chat_model(streaming=True, role="generate")
             parts: list[str] = []
             for chunk in chain.stream(inputs):
                 token = getattr(chunk, "content", "") or ""
@@ -169,7 +169,7 @@ def node_generate(state: RAGState) -> RAGState:
                     writer({"type": "token", "content": token})
             state["answer"] = "".join(parts)
         else:
-            state["answer"] = _invoke_chain(rag_prompt, inputs, label="generate")
+            state["answer"] = _invoke_chain(rag_prompt, inputs, label="generate", role="generate")
     except Exception as e:
         logger.error(f"Generate failed: {e}")
         if chunks:

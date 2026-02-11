@@ -18,6 +18,7 @@ agent.py — project_00_rag_agent 对外公共 API
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -28,10 +29,12 @@ from loguru import logger
 
 from config import settings
 from core.compression import compress_chat_history, dict_history_to_messages
+from core.streaming import CancelToken, batched_tokens
 from graph.builder import get_graph, reset_graph
 from graph.state import RAGState
 from middleware.cache import cache_get, cache_key, cache_set
 from middleware.request_context import get_request_id, new_request_id
+from storage.stream_wal import append_event, begin_stream, finalize_stream
 from tools.retriever import rebuild_bm25_from_chroma, retrieve_with_kg
 
 
@@ -249,6 +252,7 @@ async def _astream_rag_graph(
     conversation_id: Optional[str],
     hitl_approved: bool,
     sink: dict,
+    cancel: Optional[CancelToken] = None,
 ) -> AsyncGenerator[str, None]:
     """
     通过 graph.astream(updates + custom) 跑全图，generate 节点逐 token 输出。
@@ -273,6 +277,8 @@ async def _astream_rag_graph(
             if isinstance(chunk, dict) and chunk.get("type") == "token":
                 content = chunk.get("content") or ""
                 if content:
+                    if cancel and cancel.is_cancelled:
+                        break
                     token_buffer.append(content)
             continue
 
@@ -310,23 +316,66 @@ async def _astream_rag_graph(
     sink["effective_thread"] = effective_thread
 
 
-async def ask_stream_async(
-    question: str,
-    chat_history: Optional[List[BaseMessage]] = None,
+async def _produce_stream_to_wal(
     *,
-    user_roles: Optional[List[str]] = None,
-    thread_id: Optional[str] = None,
-    conversation_id: Optional[str] = None,
-    hitl_approved: bool = False,
-    use_cache: bool = True,
-    stream_chunk_chars: int = 12,
-) -> AsyncGenerator[str, None]:
+    stream_id: str,
+    question: str,
+    history: List[BaseMessage],
+    user_roles: Optional[List[str]],
+    thread_id: Optional[str],
+    conversation_id: Optional[str],
+    hitl_approved: bool,
+    use_cache: bool,
+    cancel: CancelToken,
+) -> None:
     """
-    流式问答：与 ask() 共用压缩、Redis 缓存；未命中时 graph.astream 跑全图。
+    后台任务：跑完 ask_stream_async 逻辑并将 token/meta 写入 WAL。
 
-    generate 节点通过 custom stream 逐 token yield；末尾 __META__ 与 ask() 字段对齐。
+    与 HTTP 连接解耦，支持断线后续推。
     """
-    history = compress_chat_history(chat_history or [])
+    try:
+        async for batch in batched_tokens(
+            _raw_token_stream(
+                question,
+                history,
+                user_roles=user_roles,
+                thread_id=thread_id,
+                conversation_id=conversation_id,
+                hitl_approved=hitl_approved,
+                use_cache=use_cache,
+                cancel=cancel,
+            ),
+            cancel=cancel,
+        ):
+            if batch.startswith("\n\n__META__"):
+                meta = json.loads(batch.replace("\n\n__META__", ""))
+                append_event(stream_id, "meta", meta)
+            else:
+                append_event(stream_id, "token", {"token": batch})
+        append_event(stream_id, "done", {})
+        finalize_stream(stream_id, status="complete")
+    except asyncio.CancelledError:
+        finalize_stream(stream_id, status="cancelled")
+        raise
+    except Exception as e:
+        logger.error(f"Stream WAL produce failed: {e}")
+        append_event(stream_id, "error", {"message": str(e)})
+        finalize_stream(stream_id, status="error", error=str(e))
+
+
+async def _raw_token_stream(
+    question: str,
+    history: List[BaseMessage],
+    *,
+    user_roles: Optional[List[str]],
+    thread_id: Optional[str],
+    conversation_id: Optional[str],
+    hitl_approved: bool,
+    use_cache: bool,
+    cancel: Optional[CancelToken],
+) -> AsyncGenerator[str, None]:
+    """内部 token 源（含 cache 命中路径），供 WAL 生产者与 ask_stream_async 共用。"""
+    history = compress_chat_history(history or [])
     ck = _cache_key_for_ask(question, user_roles, history, conversation_id)
     t0 = time.perf_counter()
 
@@ -336,7 +385,9 @@ async def ask_stream_async(
             cached = dict(cached)
             cached["cached"] = True
             cached.setdefault("latency_ms", 0)
-            for chunk in _iter_answer_chunks(cached.get("answer", ""), stream_chunk_chars):
+            for chunk in _iter_answer_chunks(cached.get("answer", ""), settings.stream_flush_chars):
+                if cancel and cancel.is_cancelled:
+                    return
                 yield chunk
             yield f"\n\n__META__{json.dumps(_meta_payload(cached), ensure_ascii=False)}"
             return
@@ -350,7 +401,10 @@ async def ask_stream_async(
         conversation_id=conversation_id,
         hitl_approved=hitl_approved,
         sink=sink,
+        cancel=cancel,
     ):
+        if cancel and cancel.is_cancelled:
+            break
         yield token
 
     merged_state = sink.get("state")
@@ -368,6 +422,93 @@ async def ask_stream_async(
 
     _maybe_cache_result(ck, result, merged_state, use_cache=use_cache)
     yield f"\n\n__META__{json.dumps(_meta_payload(result), ensure_ascii=False)}"
+
+
+# 进程内后台 WAL 生产任务 registry（stream_id -> task）
+_active_stream_tasks: dict[str, asyncio.Task] = {}
+
+
+def register_stream_task(stream_id: str, task: asyncio.Task) -> None:
+    _active_stream_tasks[stream_id] = task
+    task.add_done_callback(lambda _t: _active_stream_tasks.pop(stream_id, None))
+
+
+def get_stream_task(stream_id: str) -> Optional[asyncio.Task]:
+    return _active_stream_tasks.get(stream_id)
+
+
+async def start_wal_stream_producer(
+    *,
+    stream_id: str,
+    conversation_id: str,
+    question: str,
+    history: List[BaseMessage],
+    user_roles: Optional[List[str]],
+    hitl_approved: bool,
+    use_cache: bool,
+) -> CancelToken:
+    """启动后台 WAL 生产者；若已有同 stream_id 任务在跑则复用。"""
+    existing = get_stream_task(stream_id)
+    if existing and not existing.done():
+        return CancelToken()  # resume 侧只读 WAL
+
+    begin_stream(
+        stream_id,
+        conversation_id=conversation_id,
+        request_id=stream_id,
+        message=question,
+    )
+    cancel = CancelToken()
+    task = asyncio.create_task(
+        _produce_stream_to_wal(
+            stream_id=stream_id,
+            question=question,
+            history=history,
+            user_roles=user_roles,
+            thread_id=conversation_id,
+            conversation_id=conversation_id,
+            hitl_approved=hitl_approved,
+            use_cache=use_cache,
+            cancel=cancel,
+        )
+    )
+    register_stream_task(stream_id, task)
+    return cancel
+
+
+async def ask_stream_async(
+    question: str,
+    chat_history: Optional[List[BaseMessage]] = None,
+    *,
+    user_roles: Optional[List[str]] = None,
+    thread_id: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    hitl_approved: bool = False,
+    use_cache: bool = True,
+    stream_chunk_chars: Optional[int] = None,
+    cancel: Optional[CancelToken] = None,
+) -> AsyncGenerator[str, None]:
+    """
+    流式问答：与 ask() 共用压缩、Redis 缓存；未命中时 graph.astream 跑全图。
+
+    默认按 settings.stream_flush_chars / stream_flush_interval_ms 节流 batch。
+    """
+    flush_chars = stream_chunk_chars if stream_chunk_chars is not None else settings.stream_flush_chars
+    async for batch in batched_tokens(
+        _raw_token_stream(
+            question,
+            chat_history or [],
+            user_roles=user_roles,
+            thread_id=thread_id,
+            conversation_id=conversation_id,
+            hitl_approved=hitl_approved,
+            use_cache=use_cache,
+            cancel=cancel,
+        ),
+        flush_chars=flush_chars,
+        cancel=cancel,
+    ):
+        yield batch
 
 
 def ask_stream(
@@ -432,11 +573,14 @@ def get_stats() -> dict:
         count = get_vectorstore()._collection.count()
     except Exception:
         count = 0
+    from providers.factory import routing_status
     return {
         "documents_indexed": count,
         "bm25_chunks": len(_chunks),
         "kg_triples": len(get_kg().triples),
         "retrieval_mode": settings.retrieval_mode,
         "llm_provider": settings.llm_provider,
+        "model_routing": routing_status(),
+        "stream_resume_enabled": settings.stream_resume_enabled,
         "circuit_breakers": [llm_breaker.status(), embed_breaker.status()],
     }
