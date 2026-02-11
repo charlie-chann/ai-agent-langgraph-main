@@ -1,0 +1,25 @@
+{
+  "topics": [
+    {
+      "name": "伊朗局势",
+      "keywords": ["伊朗", "以色列", "中东", "霍尔木兹"],
+      "searchQuery": "伊朗 以色列 战争 2026",
+      "alert": true,
+      "priority": "high"
+    },
+    {
+      "name": "AI科技",
+      "keywords": ["人工智能", "大模型", "AI", "ChatGPT", "Gemini"],
+      "searchQuery": "AI 人工智能 最新 2026",
+      "alert": false,
+      "priority": "medium"
+    },
+    {
+      "name": "中国经济",
+      "keywords": ["中国经济", "GDP", "房地产", "A股"],
+      "searchQuery": "中国经济 最新数据 2026",
+      "alert": true,
+      "priority": "high"
+    }
+  ]
+}

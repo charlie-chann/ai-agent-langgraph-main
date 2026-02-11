@@ -1,0 +1,30 @@
+{
+  "sources": [
+    {
+      "name": "CCTV新闻",
+      "url": "https://rss.cctv.com/rss/news.rss",
+      "tags": ["国内", "新闻"],
+      "enabled": true
+    },
+    {
+      "name": "BBC国际",
+      "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "tags": ["国际", "新闻"],
+      "enabled": true
+    },
+    {
+      "name": "联合早报",
+      "url": "https://www.zaobao.com.sg/rss/realtime/china",
+      "tags": ["中国", "国际"],
+      "enabled": true
+    },
+    {
+      "name": "Hacker News",
+      "url": "https://hnrss.org/frontpage",
+      "tags": ["科技", "创业"],
+      "enabled": false
+    }
+  ],
+  "checkInterval": "2h",
+  "notificationThreshold": "high"
+}

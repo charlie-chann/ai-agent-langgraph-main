@@ -1,0 +1,28 @@
+# project_02_tool_agent — Tool Agent with ReAct
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langgraph>=0.2.0
+langchain-ollama>=0.2.0  # Ollama LLM integration
+
+# Search
+duckduckgo-search>=6.0.0
+ddgs>=9.0
+
+# Server
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sse-starlette>=2.0.0
+
+# UI
+streamlit>=1.40.0
+
+# Config & Utils
+python-dotenv>=1.0.0
+loguru>=0.7.0
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.25.0

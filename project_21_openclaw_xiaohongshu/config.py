@@ -1,0 +1,14 @@
+# config.py — openclaw 小红书内容 Agent
+OLLAMA_BASE_URL = "http://localhost:11434"
+DEFAULT_MODEL = "qwen2.5:1.5b"
+TEMPERATURE = 0.7
+
+PLATFORM = "xiaohongshu"
+MAX_TITLE_LENGTH = 30
+MAX_CONTENT_LENGTH = 1000
+MAX_TAGS = 10
+DAILY_POST_LIMIT = 5
+OPTIMAL_POST_HOURS = [10, 15, 20, 22]
+
+PROHIBITED_WORDS_CHECK = True
+SENSITIVE_TOPICS = ["违法内容", "诈骗", "虚假广告"]

@@ -1,0 +1,57 @@
+# project_01_rag_agent — Enterprise RAG System
+# Core
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-text-splitters>=0.3.0
+langgraph>=0.2.0
+
+# Vector Store
+langchain-chroma>=0.1.0
+chromadb>=0.5.0
+
+# Reranker (NEW: using cross-encoder)
+sentence-transformers>=2.7.0
+faiss-cpu>=1.8.0  # Optional: for advanced dense retrieval
+
+# BM25
+rank-bm25>=0.2
+
+# Document Loaders
+pypdf>=5.0.0
+python-docx>=1.1.0
+markdown>=3.7
+beautifulsoup4>=4.12
+lxml>=5.3
+
+# Unstructured (for complex docs)
+unstructured>=0.15.0
+
+# Server
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sse-starlette>=2.0.0
+
+# UI
+streamlit>=1.40.0
+streamlit-chat>=0.1.0
+
+# Config & Utils
+python-dotenv>=1.0.0
+loguru>=0.7.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+httpx>=0.27.0
+
+# Observability (Optional)
+opentelemetry-api>=1.28
+opentelemetry-sdk>=1.28
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.25.0
+pytest-cov>=6.0.0
+
+# Type checking
+mypy>=1.14.0
+types-requests>=2.32

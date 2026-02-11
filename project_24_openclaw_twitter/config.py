@@ -1,0 +1,14 @@
+# config.py — openclaw Twitter/X Agent
+OLLAMA_BASE_URL = "http://localhost:11434"
+DEFAULT_MODEL = "qwen2.5:1.5b"
+TEMPERATURE = 0.7
+
+PLATFORM = "twitter"
+MAX_TWEET_LENGTH = 280
+MAX_THREAD_TWEETS = 20
+MAX_HASHTAGS = 3
+DAILY_POST_LIMIT = 15
+OPTIMAL_POST_HOURS_UTC = [13, 15, 17, 20]  # UTC时区（美国用户活跃）
+
+PROHIBITED_WORDS_CHECK = True
+LANGUAGE = "en"   # 英文为主
