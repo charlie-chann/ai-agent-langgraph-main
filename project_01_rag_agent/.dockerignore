@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.git
+.env
+chroma_db
+*.md
+tests
+app.py
+docs
+sample_docs
