@@ -1,8 +1,93 @@
 # project_00_rag_agent — 分层架构与核心流程
 
-> **流程图已导出为 PNG**：见 [`docs/diagrams/`](./diagrams/)。修改图源文件 `docs/diagrams/source/*.mmd` 后执行 `python scripts/render_diagrams.py` 重新生成。
+> **流程图已导出为 PNG**：见 [`docs/diagrams/`](./diagrams/)。**建议先看图 `00` 全项目总览**，再按层阅读分图。修改 `docs/architecture.md` 内 Mermaid 后执行 `python scripts/render_diagrams.py` 重新生成。
 
 > 生产级 RAG Agent：LangGraph + JWT/RBAC + Hybrid 检索 + 知识图谱 + HITL + Redis 缓存
+
+---
+
+## 〇、全项目端到端总览（图 `00`）
+
+**一张图串起**全栈主路径；**细节一律见分图**（如 `rate_limit · 详图 06`）。不展开节点内部，与 `07`/`08` 同级精度。
+
+![全项目端到端总览](./diagrams/00_project_end_to_end.png)
+
+<details>
+<summary>查看 Mermaid 源码（可编辑后运行 scripts/render_diagrams.py 重新出图）</summary>
+
+```mermaid
+flowchart TD
+    BOOT([api lifespan · 详图 10]) --> READY([服务就绪])
+
+    subgraph L1["①客户端 · 详图 02"]
+        ST[Streamlit]
+        CLI[curl / SDK]
+        EVAL[Eval · 详图 03]
+    end
+
+    EVAL --> EVAL_DONE([eval results])
+
+    ST --> MODE{API backend?}
+    MODE -->|是| L1_API["登录 · 详图 05<br/>建会话 · 详图 22<br/>UI 当前：同步 chat · 图 07"]
+    MODE -->|否| L1_LOC["Local：session 历史<br/>ask_stream · 图 08"]
+    L1_API --> GW
+    L1_LOC --> SCH0
+    CLI --> GW
+
+    subgraph L2["②网关 api.py · 详图 04"]
+        GW[HTTP] --> RL{rate_limit · 详图 06}
+        RL --> JWT{JWT + RBAC · 详图 05}
+        JWT --> ROUTE{路由}
+    end
+
+    ROUTE -->|/ingest| ING([ingest · 详图 15/17])
+    ROUTE -->|/chat*| CHAT
+    ROUTE -->|/hitl/resume| HITL_BOX([HITL · 详图 09])
+    ROUTE -->|/health /ready /metrics| OPS([运维 · 详图 18])
+
+    CHAT["读 history · 详图 22<br/>同步 图07 / 流式 图08"] --> SCH0
+
+    subgraph SCH["③调度 agent.py"]
+        SCH0[compress · 详图 20] --> CACHE{cache_get · 详图 06}
+        CACHE -->|命中| CACHED([cached 返回])
+        CACHE -->|未命中| DRV{流式?}
+        DRV -->|否| INV[invoke · 图 07]
+        DRV -->|是| AST[astream · 图 08]
+    end
+
+    INV --> EXEC_NODE
+    AST --> EXEC_NODE
+
+    subgraph EXEC["④执行 LangGraph · 详图 11/13"]
+        EXEC_NODE["guard → rewrite → retrieve → generate → grade<br/>retrieve · 详图 14/16/17<br/>LLM/trim · 详图 18/20"]
+    end
+
+    EXEC --> PACK["③打包 result · cache_set? · 详图 06"]
+    CACHED --> PACK
+
+    PACK --> SAVE{落库?}
+    SAVE -->|API| DB["append 消息 · 详图 22"]
+    SAVE -->|Local| SESS[session_state]
+    DB --> OUT
+    SESS --> OUT
+    ING --> OUT
+    OPS --> OUT
+    HITL_BOX --> OUT
+
+    OUT{响应}
+    OUT -->|同步| JSON([JSON · 图 07])
+    OUT -->|流式| SSE([SSE · 图 08])
+    JSON --> UI[展示 · 详图 02]
+    SSE --> UI
+
+    UI -.->|hitl_pending| HITL_BOX
+
+    %% 图00 总览：细节见分图；不展开节点内部
+```
+
+</details>
+
+**读图约定**：`①`–`⑥` 为六层；`③调度` = `agent.py`；`④执行` = `graph/*`；`⑤工具` = `tools/*`；`⑥` = Provider/Redis/Postgres/Chroma 等。分图编号见 §2.1 索引。
 
 ---
 
@@ -138,10 +223,11 @@ flowchart TB
 
 | 层 | 职责（一句话） | 主要代码 | 本文章节 | 核心流程图 |
 |----|----------------|----------|----------|------------|
+| **全栈** | 端到端主路径 + ingest + HITL 汇总 | 全文 | **〇** | **`00` 全项目总览** |
 | **① 客户端** | 收集输入、展示结果；API 模式发 HTTP，Local 模式直连 agent | `app.py`, eval harness | **三** | `02` UI 全栈路径、`03` Eval |
 | **② 网关** | 鉴权、限流、答案缓存、request_id；**会话 history 从 Postgres 加载** | `api.py`, `middleware/*`, `storage/conversations.py` | **四** | `04` 网关、`05` JWT、`06` 缓存限流、`22` 会话存储 |
-| **③ 编排** | 压缩历史、查答案缓存、组装 state、调用 LangGraph | `agent.py` | **五** | `07` ask、`08` ask_stream、`09` HITL resume、`10` startup |
-| **④ 图引擎** | guard/HITL/改写/检索/生成/评分的有状态工作流 | `graph/*` | **六** | `11` 主图、`12` State、`13` Checkpointer |
+| **③ 调度** | 压缩历史、查答案缓存、组装 state、调用 LangGraph | `agent.py` | **五** | `07` ask、`08` ask_stream、`09` HITL resume、`10` startup |
+| **④ 执行** | guard/HITL/改写/检索/生成/评分的有状态工作流 | `graph/*` | **六** | `11` 主图、`12` State、`13` Checkpointer |
 | **⑤ 工具** | 入库、混合检索、KG、冲突检测 | `tools/*` | **七** | `14` 检索、`15` ingest、`16` 冲突、`17` KG |
 | **⑥ 基础设施** | 模型调用、熔断、超时、持久化存储 | `providers/`, `core/`, 磁盘/Redis/PG | **八** | `18` 熔断、`19` 超时、`20` 压缩、`21` Docker |
 
@@ -369,7 +455,7 @@ flowchart TD
 
 ## 五、层 3：编排层（`agent.py`）
 
-**读图说明**：`07`/`08` 是**跨层编排图**——主路径是编排 + 网关职责；**`invoke`/`astream` 调用本身在 ③ 编排层**（`agent.py`）；方框内是 **④ 图引擎层**（`astream`/`invoke` 遍历执行的节点）。节点旁 `↳ 详图 NN` 标注更下层调用。
+**读图说明**：`07`/`08` 只画 **③调度 + ②网关落库** 本路径步骤；执行层、HITL、工具/基建一律 **`详图 NN` 跳转**（与 `06`/`09` 同级粒度）。
 
 ### 5.1 `ask()` 同步问答主流程
 
@@ -381,47 +467,29 @@ flowchart TD
 ```mermaid
 flowchart TD
     START(["api._run_chat()<br/>来自 04 网关聊天 Handler"]) --> RID[new_request_id + metrics]
-    RID --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
-    LOAD --> A1["② compress_chat_history<br/>core/compression · 详图 20"]
-    A1 --> A2{"③ Redis 查答案缓存<br/>cache_get · 详图 06"}
+    RID --> LOAD["① DB 读 history<br/>storage · 详图 22"]
+    LOAD --> A1["② compress_chat_history · 详图 20"]
+    A1 --> A2{"③ Redis cache_get · 详图 06"}
 
     A2 -->|命中| A2H[直接返回 cached answer]
-    A2 -->|未命中| ORCH_INV["③编排层 agent.ask<br/>get_graph.invoke 驱动"]
+    A2 -->|未命中| A3["get_graph.invoke<br/>LangGraph 全图 · 详图 11"]
 
-    ORCH_INV --> G0
-
-    subgraph L4["④ 图引擎层 · invoke 内遍历执行的节点（详图 11 · 13）"]
-        direction TD
-        G0["node_guard · 详图 18"] --> R0{route_after_guard}
-        R0 -->|blocked| END_B([END])
-        R0 -->|HITL| H0["hitl_gate ⏸ · 详图 13"]
-        R0 -->|正常| RW["rewrite · 详图 18"]
-        H0 --> H_END([hitl_pending])
-        RW --> RV["retrieve<br/>↳ ⑤工具 14/16/17"]
-        RV --> GN["generate<br/>↳ 20 + 18"]
-        GN --> GR["grade · 详图 18"]
-        GR --> RT{should_retry?}
-        RT -->|grade=no 且 iter&lt;max| RW
-        RT -->|定稿| DONE_G([END])
-    end
-
-    END_B --> A4
-    H_END --> A4
-    DONE_G --> A4[打包 result]
-
+    A3 --> A4[打包 result]
     A4 --> A5{可写回答缓存?}
-    A5 -->|是| A6[cache_set]
+    A5 -->|是| A6[cache_set · 详图 06]
     A5 -->|否| MERGE[result]
     A6 --> MERGE
 
-    A2H --> SAVE["④ DB 写消息<br/>append user + assistant"]
-    MERGE --> SAVE
+    A2H --> SAVE
+    MERGE --> SAVE["④ DB 写消息<br/>append user + assistant · 详图 22"]
     SAVE --> TIT{首轮?}
     TIT -->|是| TITLE[touch_conversation 标题]
     TIT -->|否| RETURN
     TITLE --> RETURN([返回 JSON])
 
-    %% ②③ 在 agent.ask()；①④ 在 api._run_chat()；节点 ↳ 标注下层调用
+    RETURN -.->|hitl_pending| H09[详图 09 HITL 续跑]
+
+    %% ②③ 在 agent.ask()；①④ 在 api._run_chat()
 ```
 
 </details>
@@ -436,7 +504,7 @@ flowchart TD
 
 ### 5.3 `ask_stream()` 流式问答流程
 
-与图 `07` 同结构（①～④ + 缓存 + 全图）。差异：**先写 user**、**`astream` + SSE** 包装；节点旁 `↳ 详图` 标注工具层/基础设施调用；**HITL 续跑** 为另一次 HTTP（详图 `09`）。
+与图 `07` 同骨架（①～④ + 缓存 + 全图 **详图 11**）。差异：**先写 user**、**`astream` + yield + SSE**；`hitl_pending` 见 **详图 09**（另一次 HTTP）。
 
 ![ask_stream() 流式](./diagrams/08_ask_stream.png)
 
@@ -446,73 +514,34 @@ flowchart TD
 ```mermaid
 flowchart TD
     START(["api.conversation_chat_stream()<br/>来自 04 网关流式 Handler"]) --> RID[new_request_id + metrics]
-    RID --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
-    LOAD --> UMSG["写 user 消息<br/>append_message(user)<br/>（流式：在 ask 前写入）"]
+    RID --> LOAD["① DB 读 history<br/>storage · 详图 22"]
+    LOAD --> UMSG["写 user 消息<br/>append_message · 流式在 ask 前"]
 
-    UMSG --> A1["② compress_chat_history<br/>core/compression · 详图 20"]
-    A1 --> A2{"③ Redis 查答案缓存<br/>cache_get · 详图 06"}
+    UMSG --> A1["② compress_chat_history · 详图 20"]
+    A1 --> A2{"③ Redis cache_get · 详图 06"}
 
     A2 -->|命中| A2H[分块 yield cached + __META__]
+    A2 -->|未命中| A3["ask_stream_async<br/>astream 全图 · 详图 11"]
 
-    A2 -->|未命中| ORCH_AST["③调度层 _astream_rag_graph<br/>astream 驱动 · custom→buffer · grade 后 yield"]
-
-    ORCH_AST --> G0
-
-    subgraph L4["④执行层 · astream 内遍历的节点（详图 11 · 13）"]
-        direction TD
-        G0["node_guard · 详图 18"] --> R0{route_after_guard}
-        R0 -->|blocked| END_B([END 拒答])
-        R0 -->|hitl_required 未批准| H0["node_hitl_gate ⏸ · 详图 13"]
-        R0 -->|正常| RW["node_rewrite · 详图 18"]
-        H0 --> H_END([END hitl_pending])
-        RW --> RV["node_retrieve<br/>↳ 工具层 14/16/17"]
-        RV --> GN["node_generate · 详图 20+18<br/>↳ get_stream_writer 推 custom token<br/>（执行层不 yield 给客户端）"]
-        GN -.->|custom 事件| TBUF[(③调度 token_buffer)]
-        GN --> GR["node_grade · 详图 18"]
-        GR --> RT{should_retry?}
-        RT -->|grade=no 且 iter&lt;max| CL[调度层 clear buffer]
-        CL --> RW
-        RT -->|定稿| DONE_G([图执行结束])
-    end
-
-    DONE_G --> YIELD_T["③调度层 yield token<br/>flush buffer → ask_stream_async"]
-    END_B --> YIELD_B["③调度层 yield 拒答文案"]
-    H_END --> A4
-    YIELD_B --> A4
-    YIELD_T --> YIELD_M["③调度层 yield __META__"]
-    YIELD_M --> A4[result 就绪]
-
+    A3 --> A4["③ yield token + __META__<br/>grade 定稿后 flush buffer"]
     A4 --> A5{可写回答缓存?}
-    A5 -->|是| A6[cache_set]
+    A5 -->|是| A6[cache_set · 详图 06]
     A5 -->|否| MERGE[result]
     A6 --> MERGE
 
     A2H --> WRAP
-    MERGE --> WRAP["api._gen：SSE 包装<br/>async for 每条 data: token / __META__"]
+    MERGE --> WRAP["api._gen：SSE 包装<br/>yield data: token / __META__"]
 
-    WRAP --> SAVE["④ DB 写 assistant<br/>append_message(assistant)"]
+    WRAP --> SAVE["④ DB 写 assistant · 详图 22"]
     SAVE --> TIT{首轮?}
     TIT -->|是| TITLE[touch_conversation 标题]
     TIT -->|否| RETURN
-    TITLE --> RETURN(["本请求结束：SSE data: DONE"])
+    TITLE --> RETURN(["SSE data: DONE"])
 
-    RETURN -.->|__META__.hitl_pending=true| HITL_LINK[触发第二次请求]
-    HITL_LINK -.-> H1
+    RETURN -.->|hitl_pending| H09[详图 09 HITL 续跑]
 
-    subgraph HITL["HITL 续跑（详图 09）"]
-        H1["POST /hitl/resume<br/>resume_hitl · admin"]
-        H1 --> H2[graph.get_state]
-        H2 -->|无| ERR[No pending thread]
-        H2 -->|有| H3{approved?}
-        H3 -->|否| H4[update_state 拒答]
-        H4 --> END_R([返回 rejected])
-        H3 -->|是| H5[update_state hitl_approved=true]
-        H5 --> H6["graph.invoke(None)<br/>从 interrupt 续跑 · 再经 11/14…"]
-        H6 --> H7[append assistant 最终消息]
-        H7 --> END_OK([返回完整 answer JSON])
-    end
-
-    %% 07/08 为跨层编排图：节点旁 ↳ 标注下层能力；ingest(15) 不在 chat 路径
+    %% ②③④ 前半在 ask_stream_async；① 写 user、SSE、落库在 api._gen
+    %% 与 07 差异：astream、先写 user、yield；执行/HITL 细节见 11/09
 ```
 
 </details>

@@ -1,43 +1,25 @@
 flowchart TD
     START(["api._run_chat()<br/>来自 04 网关聊天 Handler"]) --> RID[new_request_id + metrics]
-    RID --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
-    LOAD --> A1["② compress_chat_history<br/>core/compression · 详图 20"]
-    A1 --> A2{"③ Redis 查答案缓存<br/>cache_get · 详图 06"}
+    RID --> LOAD["① DB 读 history<br/>storage · 详图 22"]
+    LOAD --> A1["② compress_chat_history · 详图 20"]
+    A1 --> A2{"③ Redis cache_get · 详图 06"}
 
     A2 -->|命中| A2H[直接返回 cached answer]
-    A2 -->|未命中| ORCH_INV["③编排层 agent.ask<br/>get_graph.invoke 驱动"]
+    A2 -->|未命中| A3["get_graph.invoke<br/>LangGraph 全图 · 详图 11"]
 
-    ORCH_INV --> G0
-
-    subgraph L4["④ 图引擎层 · invoke 内遍历执行的节点（详图 11 · 13）"]
-        direction TD
-        G0["node_guard · 详图 18"] --> R0{route_after_guard}
-        R0 -->|blocked| END_B([END])
-        R0 -->|HITL| H0["hitl_gate ⏸ · 详图 13"]
-        R0 -->|正常| RW["rewrite · 详图 18"]
-        H0 --> H_END([hitl_pending])
-        RW --> RV["retrieve<br/>↳ ⑤工具 14/16/17"]
-        RV --> GN["generate<br/>↳ 20 + 18"]
-        GN --> GR["grade · 详图 18"]
-        GR --> RT{should_retry?}
-        RT -->|grade=no 且 iter&lt;max| RW
-        RT -->|定稿| DONE_G([END])
-    end
-
-    END_B --> A4
-    H_END --> A4
-    DONE_G --> A4[打包 result]
-
+    A3 --> A4[打包 result]
     A4 --> A5{可写回答缓存?}
-    A5 -->|是| A6[cache_set]
+    A5 -->|是| A6[cache_set · 详图 06]
     A5 -->|否| MERGE[result]
     A6 --> MERGE
 
-    A2H --> SAVE["④ DB 写消息<br/>append user + assistant"]
-    MERGE --> SAVE
+    A2H --> SAVE
+    MERGE --> SAVE["④ DB 写消息<br/>append user + assistant · 详图 22"]
     SAVE --> TIT{首轮?}
     TIT -->|是| TITLE[touch_conversation 标题]
     TIT -->|否| RETURN
     TITLE --> RETURN([返回 JSON])
 
-    %% ②③ 在 agent.ask()；①④ 在 api._run_chat()；节点 ↳ 标注下层调用
+    RETURN -.->|hitl_pending| H09[详图 09 HITL 续跑]
+
+    %% ②③ 在 agent.ask()；①④ 在 api._run_chat()

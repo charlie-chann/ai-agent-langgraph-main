@@ -14,8 +14,9 @@ MD_PATH = ROOT / "docs" / "architecture.md"
 OUT_DIR = ROOT / "docs" / "diagrams"
 SRC_DIR = OUT_DIR / "source"
 
-# 与 architecture.md 章节对应的文件名
+# 与 architecture.md 章节对应的文件名（00 为全项目端到端总览，须为第一个 mermaid 块）
 NAMES = [
+    "00_project_end_to_end",
     "01_layers_overview",
     "02_streamlit_ui",
     "03_eval_harness",

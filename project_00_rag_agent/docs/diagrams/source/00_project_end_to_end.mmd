@@ -1,0 +1,67 @@
+flowchart TD
+    BOOT([api lifespan · 详图 10]) --> READY([服务就绪])
+
+    subgraph L1["①客户端 · 详图 02"]
+        ST[Streamlit]
+        CLI[curl / SDK]
+        EVAL[Eval · 详图 03]
+    end
+
+    EVAL --> EVAL_DONE([eval results])
+
+    ST --> MODE{API backend?}
+    MODE -->|是| L1_API["登录 · 详图 05<br/>建会话 · 详图 22<br/>UI 当前：同步 chat · 图 07"]
+    MODE -->|否| L1_LOC["Local：session 历史<br/>ask_stream · 图 08"]
+    L1_API --> GW
+    L1_LOC --> SCH0
+    CLI --> GW
+
+    subgraph L2["②网关 api.py · 详图 04"]
+        GW[HTTP] --> RL{rate_limit · 详图 06}
+        RL --> JWT{JWT + RBAC · 详图 05}
+        JWT --> ROUTE{路由}
+    end
+
+    ROUTE -->|/ingest| ING([ingest · 详图 15/17])
+    ROUTE -->|/chat*| CHAT
+    ROUTE -->|/hitl/resume| HITL_BOX([HITL · 详图 09])
+    ROUTE -->|/health /ready /metrics| OPS([运维 · 详图 18])
+
+    CHAT["读 history · 详图 22<br/>同步 图07 / 流式 图08"] --> SCH0
+
+    subgraph SCH["③调度 agent.py"]
+        SCH0[compress · 详图 20] --> CACHE{cache_get · 详图 06}
+        CACHE -->|命中| CACHED([cached 返回])
+        CACHE -->|未命中| DRV{流式?}
+        DRV -->|否| INV[invoke · 图 07]
+        DRV -->|是| AST[astream · 图 08]
+    end
+
+    INV --> EXEC_NODE
+    AST --> EXEC_NODE
+
+    subgraph EXEC["④执行 LangGraph · 详图 11/13"]
+        EXEC_NODE["guard → rewrite → retrieve → generate → grade<br/>retrieve · 详图 14/16/17<br/>LLM/trim · 详图 18/20"]
+    end
+
+    EXEC --> PACK["③打包 result · cache_set? · 详图 06"]
+    CACHED --> PACK
+
+    PACK --> SAVE{落库?}
+    SAVE -->|API| DB["append 消息 · 详图 22"]
+    SAVE -->|Local| SESS[session_state]
+    DB --> OUT
+    SESS --> OUT
+    ING --> OUT
+    OPS --> OUT
+    HITL_BOX --> OUT
+
+    OUT{响应}
+    OUT -->|同步| JSON([JSON · 图 07])
+    OUT -->|流式| SSE([SSE · 图 08])
+    JSON --> UI[展示 · 详图 02]
+    SSE --> UI
+
+    UI -.->|hitl_pending| HITL_BOX
+
+    %% 图00 总览：细节见分图；不展开节点内部
