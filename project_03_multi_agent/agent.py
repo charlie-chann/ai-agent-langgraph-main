@@ -1,4 +1,18 @@
-# agent.py — Multi-Agent Collaboration System (LangGraph) v2.0
+"""
+agent.py — 多 Agent 协作系统 (LangGraph) v2.0
+
+【职责】
+1. 定义 MultiAgentState 共享状态，承载 Planner → Researcher → Writer → Critic → Summarizer 流水线数据
+2. 实现各 Agent 节点函数与 Critic 后的条件路由（通过则 Summarizer，否则回 Writer 修订）
+3. 编译 LangGraph 状态图，对外提供 run / run_stream 同步与流式 API
+
+【设计原因】
+1. LangGraph StateGraph：显式 DAG + 条件边，比手写循环更易扩展节点与观测
+2. Critic 修订环路上限 MAX_REVISION_LOOPS：防止低分内容无限重写，控制延迟与成本
+3. LLM 分 creative / 非 creative 两档温度：规划/评审偏确定性，写作偏创意
+4. JSON 解析 fallback（正则提取 + 默认 plan/critique）：小模型输出不规范时不致崩溃
+5. 图单例 get_graph()：避免重复 compile；agent_log 记录每步耗时供 UI 时间线展示
+"""
 from __future__ import annotations
 
 import json
@@ -24,8 +38,25 @@ from prompts.agent_prompts import (
 from tools.search_tool import multi_search
 
 
-# ── Shared State ───────────────────────────────────────────────────────────────
+# ── 共享状态 ───────────────────────────────────────────────────────────────────
 class MultiAgentState(TypedDict):
+    """
+    LangGraph 各节点读写的全局状态字典。
+
+    字段说明:
+        task: 用户原始任务描述
+        scenario: 业务场景（market_research / social_media）
+        plan: Planner 输出的 JSON 计划
+        search_results: multi_search 原始检索文本
+        research: Researcher 综合后的 Markdown 研究结论
+        content: Writer 产出的正文
+        critique: Critic 输出的 JSON 评分与修订建议
+        summary: Summarizer 生成的执行摘要
+        revision_count: Critic 已执行次数（含首次评估）
+        agent_log: 每步 agent 名、输出预览、耗时(ms)
+        final_output: 正文 + 分隔线 + Executive Summary 的完整交付物
+        total_latency_ms: 整链端到端耗时（由 run/run_stream 填充）
+    """
     task: str
     scenario: str
     plan: dict
@@ -41,6 +72,15 @@ class MultiAgentState(TypedDict):
 
 
 def _llm(creative: bool = False) -> ChatOllama:
+    """
+    创建 Ollama Chat 模型实例。
+
+    参数:
+        creative: True 时使用 CREATIVE_TEMPERATURE（写作节点）；否则 TEMPERATURE（规划/评审）
+
+    返回:
+        配置好 base_url、model、temperature 的 ChatOllama 实例
+    """
     return ChatOllama(
         model=DEFAULT_MODEL,
         base_url=OLLAMA_BASE_URL,
@@ -49,6 +89,15 @@ def _llm(creative: bool = False) -> ChatOllama:
 
 
 def _log_step(state: MultiAgentState, agent: str, output: str, t0: float) -> None:
+    """
+    向 state["agent_log"] 追加一步执行记录。
+
+    参数:
+        state: 当前图状态
+        agent: 节点名称（planner / researcher / ...）
+        output: 该步主要输出（截断前 300 字符作为 preview）
+        t0: perf_counter 起始时间，用于计算 time_ms
+    """
     state["agent_log"].append({
         "agent": agent,
         "output_preview": output[:300],
@@ -56,8 +105,16 @@ def _log_step(state: MultiAgentState, agent: str, output: str, t0: float) -> Non
     })
 
 
-# ── Agent Nodes ────────────────────────────────────────────────────────────────
+# ── Agent 节点 ─────────────────────────────────────────────────────────────────
 def node_planner(state: MultiAgentState) -> MultiAgentState:
+    """
+    Planner 节点：将用户任务拆解为结构化 JSON 计划。
+
+    流程:
+        1. PLANNER_PROMPT | LLM 调用
+        2. 解析 JSON；失败则用正则提取或 fallback 默认 plan
+        3. 写入 state["plan"] 并记录 agent_log
+    """
     t0 = time.perf_counter()
     logger.info("[Planner] Planning task...")
     chain = PLANNER_PROMPT | _llm()
@@ -66,6 +123,7 @@ def node_planner(state: MultiAgentState) -> MultiAgentState:
     try:
         plan = json.loads(result.content)
     except json.JSONDecodeError:
+        # 小模型常在 JSON 外包裹说明文字，用正则兜底提取 {...}
         import re
         match = re.search(r'\{.*\}', result.content, re.DOTALL)
         plan = json.loads(match.group()) if match else {
@@ -82,6 +140,13 @@ def node_planner(state: MultiAgentState) -> MultiAgentState:
 
 
 def node_researcher(state: MultiAgentState) -> MultiAgentState:
+    """
+    Researcher 节点：按计划中的 research_questions 搜索并 synthesize 研究结论。
+
+    流程:
+        1. multi_search 批量检索 → search_results
+        2. RESEARCHER_PROMPT | LLM 综合为 Markdown → research
+    """
     t0 = time.perf_counter()
     logger.info("[Researcher] Searching...")
     questions = state["plan"].get("research_questions", [state["task"]])
@@ -99,6 +164,14 @@ def node_researcher(state: MultiAgentState) -> MultiAgentState:
 
 
 def node_writer(state: MultiAgentState) -> MultiAgentState:
+    """
+    Writer 节点：根据 scenario 选择市场调研或社媒 Prompt 生成正文。
+
+    流程:
+        1. social_media → WRITER_SOCIAL_PROMPT；否则 WRITER_MARKET_PROMPT
+        2. creative=True 提升文案多样性
+        3. 修订环中 Critic 打回后会再次进入此节点重写 content
+    """
     t0 = time.perf_counter()
     logger.info("[Writer] Writing content...")
     plan = state["plan"]
@@ -120,6 +193,14 @@ def node_writer(state: MultiAgentState) -> MultiAgentState:
 
 
 def node_critic(state: MultiAgentState) -> MultiAgentState:
+    """
+    Critic 节点：对 Writer 产出打分，决定 pass 或 revise。
+
+    流程:
+        1. CRITIC_PROMPT | LLM 输出 JSON critique
+        2. 解析失败时 fallback 默认 pass 结构
+        3. revision_count 自增，供路由与 UI 展示修订次数
+    """
     t0 = time.perf_counter()
     logger.info("[Critic] Evaluating content...")
     chain = CRITIC_PROMPT | _llm()
@@ -145,6 +226,13 @@ def node_critic(state: MultiAgentState) -> MultiAgentState:
 
 
 def node_summarizer(state: MultiAgentState) -> MultiAgentState:
+    """
+    Summarizer 节点：生成执行摘要并组装 final_output。
+
+    流程:
+        1. SUMMARIZER_PROMPT | LLM 生成 summary
+        2. final_output = content + 分隔线 + Executive Summary 标题 + summary
+    """
     t0 = time.perf_counter()
     logger.info("[Summarizer] Creating summary...")
     chain = SUMMARIZER_PROMPT | _llm()
@@ -155,8 +243,19 @@ def node_summarizer(state: MultiAgentState) -> MultiAgentState:
     return state
 
 
-# ── Routing ────────────────────────────────────────────────────────────────────
+# ── 条件路由 ───────────────────────────────────────────────────────────────────
 def _route_after_critic(state: MultiAgentState) -> str:
+    """
+    Critic 之后的条件边：决定进入 summarizer 或回 writer 修订。
+
+    通过条件（任一满足即 summarizer）:
+        - verdict == "pass"
+        - overall_score >= CRITIC_PASS_SCORE
+        - revision_count >= MAX_REVISION_LOOPS（防止无限循环）
+
+    返回:
+        "summarizer" 或 "writer"（与 add_conditional_edges 映射键一致）
+    """
     score = state["critique"].get("overall_score", 10)
     verdict = state["critique"].get("verdict", "pass")
     if verdict == "pass" or score >= CRITIC_PASS_SCORE or state["revision_count"] >= MAX_REVISION_LOOPS:
@@ -166,8 +265,18 @@ def _route_after_critic(state: MultiAgentState) -> str:
     return "writer"
 
 
-# ── Build Graph ────────────────────────────────────────────────────────────────
+# ── 构建状态图 ─────────────────────────────────────────────────────────────────
 def build_graph():
+    """
+    构建并编译 LangGraph 多 Agent 流水线。
+
+    拓扑:
+        planner → researcher → writer → critic
+        critic ──(条件)──→ writer（修订）或 summarizer → END
+
+    返回:
+        已 compile 的可 invoke/stream 的图对象
+    """
     g = StateGraph(MultiAgentState)
     g.add_node("planner", node_planner)
     g.add_node("researcher", node_researcher)
@@ -188,19 +297,35 @@ def build_graph():
     return g.compile()
 
 
+# 进程级图单例，首次 invoke 时 compile
 _graph = None
 
 
 def get_graph():
+    """
+    获取已编译图的懒加载单例。
+
+    返回:
+        compile 后的 StateGraph 实例
+    """
     global _graph
     if _graph is None:
         _graph = build_graph()
     return _graph
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
+# ── 对外 API ───────────────────────────────────────────────────────────────────
 def run(task: str, scenario: str = SCENARIO_MARKET_RESEARCH) -> dict:
-    """Run the full multi-agent pipeline."""
+    """
+    同步执行完整多 Agent 流水线。
+
+    参数:
+        task: 用户任务描述
+        scenario: 业务场景，默认市场调研
+
+    返回:
+        执行完毕的 MultiAgentState 字典（含 total_latency_ms）
+    """
     t0 = time.perf_counter()
     initial: MultiAgentState = {
         "task": task,
@@ -222,7 +347,20 @@ def run(task: str, scenario: str = SCENARIO_MARKET_RESEARCH) -> dict:
 
 
 def run_stream(task: str, scenario: str = SCENARIO_MARKET_RESEARCH) -> Generator[dict, None, None]:
-    """Stream agent progress events."""
+    """
+    流式执行流水线，每完成一个节点 yield 进度事件。
+
+    参数:
+        task: 用户任务描述
+        scenario: 业务场景
+
+    Yields:
+        {"type": "node_complete", "agent", "preview", "time_ms"} 各节点完成时
+        {"type": "done", "total_latency_ms"} 全部结束时
+
+    说明:
+        stream_mode="updates" 仅推送有变化的节点状态，便于 UI 逐步更新进度条
+    """
     t0 = time.perf_counter()
     initial: MultiAgentState = {
         "task": task,

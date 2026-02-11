@@ -1,4 +1,16 @@
-# agent.py — ReAct Agent with memory (LangGraph) v2.1
+"""
+agent.py — ReAct 多工具 Agent 核心逻辑（LangGraph）
+
+【职责】
+1. 用 create_react_agent 组装 LLM + 6 个工具，实现「思考→行动→观察」循环
+2. 提供 run / run_with_memory / run_stream 等对外 API
+3. 管理 Agent 单例与对话记忆读写
+
+【设计原因】
+1. LangGraph prebuilt ReAct：比手写 ToolNode 更简洁，社区标准方案
+2. 记忆与 Agent 分离：memory.py 管存储，agent.py 只管注入与保存
+3. 同步/流式两套 API：Streamlit 用同步，FastAPI SSE 用流式
+"""
 from __future__ import annotations
 
 import json
@@ -17,12 +29,18 @@ from tools.datetime_tool import get_datetime
 from memory import get_memory_store, MemoryStore
 
 
-# All available tools
+# Agent 可调用的全部工具列表，顺序不影响行为
 ALL_TOOLS = [web_search, calculator, file_read, file_write, file_list, get_datetime]
 
 
-# ── LLM Factory ────────────────────────────────────────────────────────────────
+# ── LLM 工厂 ──────────────────────────────────────────────────────────────────
 def _llm(streaming: bool = False) -> ChatOllama:
+    """
+    创建 Ollama Chat 模型实例。
+
+    参数:
+        streaming: True 时启用 token 流式输出（run_stream 使用）
+    """
     return ChatOllama(
         model=DEFAULT_MODEL,
         base_url=OLLAMA_BASE_URL,
@@ -31,12 +49,17 @@ def _llm(streaming: bool = False) -> ChatOllama:
     )
 
 
-# ── Global Agent Cache ────────────────────────────────────────────────────────
+# ── Agent 单例缓存 ────────────────────────────────────────────────────────────
 _agent = None
 
 
 def get_agent():
-    """Get or create the agent singleton."""
+    """
+    获取或创建 ReAct Agent 单例。
+
+    说明:
+        首次调用时 create_react_agent，后续复用同一实例，避免重复初始化 LLM。
+    """
     global _agent
     if _agent is None:
         _agent = create_react_agent(
@@ -48,32 +71,41 @@ def get_agent():
 
 
 def reset_agent():
-    """Reset agent (useful for testing)."""
+    """重置 Agent 单例，单元测试或切换模型后调用。"""
     global _agent
     _agent = None
     logger.info("Agent reset")
 
 
-# ── Run Functions ─────────────────────────────────────────────────────────────
+# ── 运行入口（无记忆）────────────────────────────────────────────────────────
 
 def run(question: str, chat_history: Optional[List[BaseMessage]] = None) -> dict:
-    """Non-streaming agent run without memory."""
+    """
+    同步运行 Agent，不持久化对话记忆。
+
+    参数:
+        question: 用户问题
+        chat_history: 可选的历史消息，手动传入时使用
+
+    返回:
+        dict: answer, steps（工具调用链）, latency_ms, tool_calls
+    """
     t0 = time.perf_counter()
-    
+
     agent = get_agent()
-    
-    # Build messages without memory
+
+    # 组装消息列表：历史 + 当前问题
     messages = []
     if chat_history:
         messages.extend(chat_history)
     messages.append(HumanMessage(content=question))
-    
-    # Run agent
+
+    # invoke 一次性跑完 ReAct 循环，stream_mode="values" 返回最终 state
     result = agent.invoke({"messages": messages}, stream_mode="values")
-    
+
     latency_ms = round((time.perf_counter() - t0) * 1000)
-    
-    # Extract tool calls
+
+    # 从返回的 messages 中提取 tool 类型消息，构建 steps 供 UI 展示
     steps = []
     result_messages = result.get("messages", [])
     for msg in result_messages:
@@ -83,14 +115,14 @@ def run(question: str, chat_history: Optional[List[BaseMessage]] = None) -> dict
                 "input": str(getattr(msg, "tool_input", ""))[:200],
                 "output": str(getattr(msg, "content", ""))[:500],
             })
-    
-    # Final answer
+
+    # 倒序找最后一条 AI 消息作为最终答案
     answer = ""
     for msg in reversed(result_messages):
         if hasattr(msg, "type") and msg.type == "ai":
             answer = getattr(msg, "content", "")
             break
-    
+
     return {
         "answer": answer,
         "steps": steps,
@@ -101,44 +133,35 @@ def run(question: str, chat_history: Optional[List[BaseMessage]] = None) -> dict
 
 def run_with_memory(question: str, session_id: str = "default") -> dict:
     """
-    Run agent WITH automatic conversation memory.
-    
-    This is the recommended way to run the agent for multi-turn conversations.
-    The agent automatically:
-    1. Loads previous conversation history
-    2. Includes it in the context
-    3. Saves the new exchange to history
-    
-    Args:
-        question: User's question
-        session_id: Unique session identifier (e.g., user ID, conversation ID)
-    
-    Returns:
-        dict with answer, steps, latency_ms, tool_calls, and session_id
+    带自动对话记忆的运行（推荐用于多轮对话）。
+
+    流程:
+        1. 从 MemoryStore 加载最近 20 条历史
+        2. 注入 Agent 上下文并执行
+        3. 将本轮 user/ai 消息写回记忆
+
+    参数:
+        session_id: 会话 ID，相同 ID 共享记忆
     """
     t0 = time.perf_counter()
-    
+
     agent = get_agent()
     memory = get_memory_store().get_or_create_session(session_id)
-    
-    # Load chat history
+
     chat_history = memory.get_langchain_messages(limit=20)
-    
-    # Add current question
+
     messages = chat_history.copy()
     messages.append(HumanMessage(content=question))
-    
+
     logger.info(f"[Memory] Session {session_id}: loaded {len(chat_history)} history messages")
-    
-    # Run agent
+
     result = agent.invoke({"messages": messages}, stream_mode="values")
-    
+
     latency_ms = round((time.perf_counter() - t0) * 1000)
-    
-    # Extract tool calls and save to memory
+
     steps = []
     result_messages = result.get("messages", [])
-    
+
     for msg in result_messages:
         if hasattr(msg, "type"):
             if msg.type == "tool":
@@ -147,20 +170,19 @@ def run_with_memory(question: str, session_id: str = "default") -> dict:
                     "input": str(getattr(msg, "tool_input", ""))[:200],
                     "output": str(getattr(msg, "content", ""))[:500],
                 })
-    
-    # Get answer
+
     answer = ""
     for msg in reversed(result_messages):
         if hasattr(msg, "type") and msg.type == "ai":
             answer = getattr(msg, "content", "")
             break
-    
-    # Save to memory
+
+    # 持久化本轮问答到记忆
     memory.add_user_message(question)
     memory.add_ai_message(answer)
-    
+
     logger.info(f"[Memory] Session {session_id}: saved exchange, total messages: {len(memory.messages)}")
-    
+
     return {
         "answer": answer,
         "steps": steps,
@@ -172,20 +194,29 @@ def run_with_memory(question: str, session_id: str = "default") -> dict:
 
 
 def run_stream(question: str, chat_history: Optional[List[BaseMessage]] = None) -> Generator[dict, None, None]:
-    """Streaming version without memory."""
+    """
+    流式运行（无记忆），逐 token / 工具事件 yield。
+
+    事件类型:
+        {"type": "token", "content": "..."}   — LLM 输出片段
+        {"type": "tool_end", "tool": ..., "output": ...} — 工具执行完成
+        {"type": "done", "latency_ms": ..., "tool_calls": ...} — 结束
+    """
     t0 = time.perf_counter()
     tool_calls = 0
-    
+
     agent = get_agent()
-    
+
     messages = []
     if chat_history:
         messages.extend(chat_history)
     messages.append(HumanMessage(content=question))
-    
+
+    # stream_mode="updates"：每个节点完成时推送一次
     for event in agent.stream({"messages": messages}, stream_mode="updates"):
         for node_name, node_output in event.items():
             if node_name == "agent":
+                # Agent 节点：提取 AI 生成的 token
                 msgs = node_output.get("messages", [])
                 for msg in msgs:
                     if hasattr(msg, "type") and msg.type == "ai":
@@ -193,6 +224,7 @@ def run_stream(question: str, chat_history: Optional[List[BaseMessage]] = None) 
                         if content:
                             yield {"type": "token", "content": content}
             elif node_name.startswith("tools_"):
+                # 工具节点：推送工具名与输出摘要
                 msgs = node_output.get("messages", [])
                 for msg in msgs:
                     if hasattr(msg, "type") and msg.type == "tool":
@@ -202,7 +234,7 @@ def run_stream(question: str, chat_history: Optional[List[BaseMessage]] = None) 
                             "tool": getattr(msg, "name", "unknown"),
                             "output": str(getattr(msg, "content", ""))[:300],
                         }
-    
+
     latency_ms = round((time.perf_counter() - t0) * 1000)
     yield {
         "type": "done",
@@ -213,25 +245,22 @@ def run_stream(question: str, chat_history: Optional[List[BaseMessage]] = None) 
 
 def run_stream_with_memory(question: str, session_id: str = "default") -> Generator[dict, None, None]:
     """
-    Streaming version WITH memory.
-    
-    Same as run_with_memory but yields tokens in real-time.
+    流式运行 + 记忆：边输出边累积 answer_content，结束后写入 MemoryStore。
     """
     t0 = time.perf_counter()
     tool_calls = 0
-    
+
     agent = get_agent()
     memory = get_memory_store().get_or_create_session(session_id)
-    
-    # Load history
+
     chat_history = memory.get_langchain_messages(limit=20)
     messages = chat_history.copy()
     messages.append(HumanMessage(content=question))
-    
+
     logger.info(f"[Memory Stream] Session {session_id}: loaded {len(chat_history)} messages")
-    
+
     answer_content = ""
-    
+
     for event in agent.stream({"messages": messages}, stream_mode="updates"):
         for node_name, node_output in event.items():
             if node_name == "agent":
@@ -252,11 +281,10 @@ def run_stream_with_memory(question: str, session_id: str = "default") -> Genera
                             "tool": getattr(msg, "name", "unknown"),
                             "output": str(getattr(msg, "content", ""))[:300],
                         }
-    
-    # Save to memory
+
     memory.add_user_message(question)
     memory.add_ai_message(answer_content)
-    
+
     latency_ms = round((time.perf_counter() - t0) * 1000)
     yield {
         "type": "done",
@@ -266,9 +294,10 @@ def run_stream_with_memory(question: str, session_id: str = "default") -> Genera
     }
 
 
-# ── Memory Management ─────────────────────────────────────────────────────────
+# ── 记忆管理 API ──────────────────────────────────────────────────────────────
+
 def get_memory_stats(session_id: Optional[str] = None) -> dict:
-    """Get memory statistics."""
+    """查询单个 session 或全部 session 的记忆统计。"""
     store = get_memory_store()
     if session_id:
         session = store.get_session(session_id)
@@ -285,21 +314,21 @@ def get_memory_stats(session_id: Optional[str] = None) -> dict:
 
 
 def clear_memory(session_id: Optional[str] = None) -> dict:
-    """Clear memory for a session or all sessions."""
+    """清空指定 session 或全部 session 的记忆。"""
     store = get_memory_store()
     if session_id:
         store.clear_session(session_id)
         return {"message": f"Cleared session {session_id}"}
     else:
-        # Clear all
         for sid in store.get_all_sessions():
             store.clear_session(sid)
         return {"message": "Cleared all sessions"}
 
 
-# ── Utility ───────────────────────────────────────────────────────────────────
+# ── 工具函数 ──────────────────────────────────────────────────────────────────
+
 def get_stats() -> dict:
-    """Get agent stats."""
+    """返回 Agent 运行时统计（工具数、模型名等），供 /stats 接口使用。"""
     return {
         "num_tools": len(ALL_TOOLS),
         "tool_names": [t.name for t in ALL_TOOLS],

@@ -1,7 +1,18 @@
-# prompts/research_prompts.py
+"""
+prompts/research_prompts.py — Deep Research Agent 提示词模板
+
+【职责】
+定义研究流水线各阶段（查询生成、缺口分析、综合、报告撰写、润色）
+使用的 LangChain ChatPromptTemplate，统一 LLM 输入格式与输出约束。
+
+【设计原因】
+提示词集中管理便于迭代优化与 A/B 测试；各阶段职责单一，
+避免单个超长 prompt 导致模型注意力分散、输出质量下降。
+"""
 from langchain_core.prompts import ChatPromptTemplate
 
-# ── Query Generator ────────────────────────────────────────────────────────────
+# ── 查询生成器（Query Generator）────────────────────────────────────────────
+# 根据研究主题生成多样化搜索查询，覆盖背景、现状、关键玩家等多角度
 QUERY_GEN_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a research strategist. Generate {n} diverse, specific search queries
 to deeply investigate the given research topic. Queries should cover different angles:
@@ -11,7 +22,8 @@ Return ONLY a JSON array of strings: ["query1", "query2", ...]"""),
     ("human", "Research topic: {topic}\nAlready searched: {already_searched}"),
 ])
 
-# ── Gap Analyzer ───────────────────────────────────────────────────────────────
+# ── 缺口分析器（Gap Analyzer）────────────────────────────────────────────────
+# 评估已收集研究的覆盖度，识别信息缺口并生成后续查询
 GAP_ANALYZER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a research quality analyst. Review the collected research and identify:
 1. What has been well covered
@@ -34,7 +46,8 @@ Research collected so far:
 Round: {round}/{max_rounds}"""),
 ])
 
-# ── Synthesizer ────────────────────────────────────────────────────────────────
+# ── 综合器（Synthesizer）──────────────────────────────────────────────────────
+# 将多轮搜索结果整合为结构化研究笔记，去重并按主题组织
 SYNTHESIZER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are an expert researcher. Synthesize all search results into
 structured research notes. Extract: key facts, statistics, expert opinions, trends.
@@ -50,7 +63,8 @@ Previous research notes:
 Produce updated, unified research notes in markdown."""),
 ])
 
-# ── Report Writer ──────────────────────────────────────────────────────────────
+# ── 报告撰写器（Report Writer）──────────────────────────────────────────────
+# 基于研究笔记生成完整、结构化的深度研究报告
 REPORT_WRITER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a senior analyst and expert report writer.
 Write a comprehensive, well-structured research report based on the research notes.
@@ -77,7 +91,8 @@ Research notes:
 Write the full report."""),
 ])
 
-# ── Report Polisher ────────────────────────────────────────────────────────────
+# ── 报告润色器（Report Polisher）──────────────────────────────────────────────
+# 对初稿进行逻辑校验、摘要强化与 TL;DR 补充，提升可读性与一致性
 POLISHER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a professional editor. Polish this research report:
 - Fix any logical gaps or inconsistencies

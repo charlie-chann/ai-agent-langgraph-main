@@ -1,7 +1,20 @@
-# prompts/agent_prompts.py — all agent role prompts for project_03
+"""
+prompts/agent_prompts.py — 多 Agent 角色 Prompt 模板
+
+【职责】
+1. 定义 Planner / Researcher / Writer / Critic / Summarizer 五类角色的 ChatPromptTemplate
+2. 为不同业务场景（市场调研 vs 社媒内容）提供差异化 Writer Prompt
+3. 约束 LLM 输出格式（JSON 或 Markdown），便于下游节点解析与展示
+
+【设计原因】
+1. Prompt 与 agent 逻辑分离：改文案不动图结构，便于 A/B 测试与迭代
+2. Planner / Critic 要求 JSON：结构化输出便于程序解析；解析失败时 agent 有 fallback
+3. Writer 分场景两套 Prompt：市场调研偏报告结构，社媒偏钩子与多平台格式
+4. 模板变量（{task}、{tone} 等）与 MultiAgentState 字段一一对应，减少映射错误
+"""
 from langchain_core.prompts import ChatPromptTemplate
 
-# ── Planner ────────────────────────────────────────────────────────────────────
+# ── Planner：任务拆解与内容规划 ────────────────────────────────────────────────
 PLANNER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a strategic task planner. Break down the user's request
 into a structured plan with clear research questions and content goals.
@@ -18,8 +31,10 @@ Output a JSON object with:
 Respond ONLY with the JSON object."""),
     ("human", "Task: {task}\nScenario: {scenario}"),
 ])
+# 输入：task（用户任务）、scenario（业务场景）
+# 输出：JSON 计划 → 写入 state["plan"]，供 Researcher / Writer 使用
 
-# ── Researcher ─────────────────────────────────────────────────────────────────
+# ── Researcher：基于搜索结果 synthesize 研究结论 ───────────────────────────────
 RESEARCHER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a thorough researcher. Using the search results provided,
 extract and synthesize the most relevant facts, statistics, and insights for each
@@ -32,8 +47,10 @@ Search results:
 
 Provide structured research findings in markdown."""),
 ])
+# 输入：plan 中的 research_questions + multi_search 原始结果
+# 输出：Markdown 研究摘要 → 写入 state["research"]
 
-# ── Writer ─────────────────────────────────────────────────────────────────────
+# ── Writer（市场调研）：专业报告结构 ───────────────────────────────────────────
 WRITER_MARKET_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are an expert market research analyst and writer.
 Write a professional market research report based on the plan and research findings.
@@ -48,7 +65,9 @@ Research findings:
 
 Write the full report."""),
 ])
+# 用于 scenario == market_research；配合 creative temperature 提升行文质量
 
+# ── Writer（社媒内容）：多平台创意文案 ─────────────────────────────────────────
 WRITER_SOCIAL_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a creative social media content strategist.
 Create engaging, platform-optimized content based on the plan and research.
@@ -63,8 +82,9 @@ Research findings:
 
 Write the social media content."""),
 ])
+# 用于 scenario == social_media；输出含 Hook / CTA / Hashtags 的多平台内容
 
-# ── Critic ─────────────────────────────────────────────────────────────────────
+# ── Critic：质量评分与修订裁决 ─────────────────────────────────────────────────
 CRITIC_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a strict quality critic. Evaluate the content on:
 1. Accuracy & factual correctness (1-10)
@@ -85,11 +105,13 @@ Respond ONLY with JSON:
 Content to evaluate:
 {content}"""),
 ])
+# overall_score / verdict 驱动 _route_after_critic 决定进入 Summarizer 或回 Writer 修订
 
-# ── Summarizer ─────────────────────────────────────────────────────────────────
+# ── Summarizer：执行摘要与下一步建议 ───────────────────────────────────────────
 SUMMARIZER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """You are a concise summarizer. Create a crisp executive summary
 (3-5 bullet points) of the key takeaways from the content.
 End with one clear "Next Step" recommendation."""),
     ("human", "Content:\n{content}"),
 ])
+# 输出追加到 final_output 末尾，供 UI 与 API 单独展示 summary 字段

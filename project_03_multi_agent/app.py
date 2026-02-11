@@ -1,8 +1,22 @@
-# app.py — Streamlit UI for Multi-Agent Collaboration System
+"""
+app.py — Multi-Agent 协作系统 Streamlit 前端
+
+【职责】
+1. 提供侧边栏配置（模型名、场景、示例任务）与主流水线进度可视化
+2. 调用 run_stream 实时更新五 Agent 状态，再 run 拉取完整 state 展示报告与评分
+3. 支持历史记录、Critique 明细、Agent Log 时间线与 Markdown 下载
+
+【设计原因】
+1. 先 stream 后 sync run：stream 仅推送节点进度，完整 state 需 invoke 一次拿全量字段（content/critique）
+2. session_state.history：跨 rerun 保留最近运行记录，示例按钮通过 prefill 注入任务框
+3. 五列 progress_cols 与 AGENT_ICONS 映射：用户直观看到 Planner→Summarizer 流水线
+4. expander 分层展示：正文 / 摘要 / 评分 / 日志互不干扰，默认展开核心内容
+"""
 import json
 import time
 import streamlit as st
 
+# 页面配置需在其它 st 组件之前调用
 st.set_page_config(
     page_title="Multi-Agent Collaboration",
     page_icon="🤝",
@@ -17,10 +31,11 @@ from config import (
 )
 from agent import run_stream, run
 
-# ── Session init ──────────────────────────────────────────────────────────────
+# ── Session 初始化 ────────────────────────────────────────────────────────────
 if "history" not in st.session_state:
     st.session_state.history = []
 
+# 各 Agent 节点在 UI 中的图标与显示名称
 AGENT_ICONS = {
     "planner":    "🗺️",
     "researcher": "🔍",
@@ -37,6 +52,7 @@ AGENT_LABELS = {
     "summarizer": "Summarizer",
 }
 
+# 按场景预置示例任务，侧边栏一键填入
 SCENARIO_EXAMPLES = {
     SCENARIO_MARKET_RESEARCH: [
         "AI agent market in 2025: size, key players, growth trends",
@@ -50,7 +66,7 @@ SCENARIO_EXAMPLES = {
     ],
 }
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ── 侧边栏 ─────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🤝 Multi-Agent System")
     st.caption("Planner · Researcher · Writer · Critic · Summarizer")
@@ -68,6 +84,7 @@ with st.sidebar:
     st.markdown("### 💡 Example Tasks")
     for ex in SCENARIO_EXAMPLES[scenario]:
         if st.button(f"▶ {ex[:50]}...", key=ex):
+            # 写入 prefill，主区域 text_area 在下次 render 时 pop 填入
             st.session_state["prefill"] = ex
 
     st.divider()
@@ -81,7 +98,7 @@ with st.sidebar:
         st.session_state.history = []
         st.rerun()
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── 主区域 ─────────────────────────────────────────────────────────────────────
 st.markdown("# 🤝 Multi-Agent Collaboration System")
 st.caption(
     f"**{'Market Research' if scenario == SCENARIO_MARKET_RESEARCH else 'Social Media'}** scenario  ·  "
@@ -108,7 +125,7 @@ with col1:
 if run_btn and task.strip():
     st.divider()
 
-    # Agent progress display
+    # ── Agent 进度条：五列对应五个节点 ───────────────────────────────────────
     progress_cols = st.columns(5)
     agent_status = {a: "⏳" for a in AGENT_ICONS}
     agent_placeholders = {}
@@ -127,6 +144,7 @@ if run_btn and task.strip():
 
     final_state = None
 
+    # 第一阶段：流式更新各 Agent 完成状态与耗时
     with st.spinner("Multi-agent pipeline running..."):
         for event in run_stream(task.strip(), scenario):
             if event["type"] == "node_complete":
@@ -139,12 +157,12 @@ if run_btn and task.strip():
             elif event["type"] == "done":
                 pass
 
-    # Re-run non-streaming to get full state for display
+    # 第二阶段：非流式 run 获取完整 state（stream 的 updates 不含全部字段）
     with st.spinner("Fetching full output..."):
         final_state = run(task.strip(), scenario)
 
     if final_state:
-        # Critique score
+        # ── 质量指标卡片 ─────────────────────────────────────────────────────
         critique = final_state.get("critique", {})
         score = critique.get("overall_score", "—")
         verdict = critique.get("verdict", "—")
@@ -156,16 +174,16 @@ if run_btn and task.strip():
         col_m3.metric("Revisions", revisions)
         col_m4.metric("Total Time", f"{final_state.get('total_latency_ms', 0)}ms")
 
-        # Main content
+        # ── 正文 ─────────────────────────────────────────────────────────────
         with st.expander("📝 Full Report / Content", expanded=True):
             st.markdown(final_state.get("content", ""))
 
-        # Summary
+        # ── 执行摘要 ─────────────────────────────────────────────────────────
         if final_state.get("summary"):
             with st.expander("📋 Executive Summary", expanded=True):
                 st.markdown(final_state["summary"])
 
-        # Critique details
+        # ── Critic 评分明细 ──────────────────────────────────────────────────
         if critique:
             with st.expander("🎯 Critic Evaluation"):
                 if "scores" in critique:
@@ -184,7 +202,7 @@ if run_btn and task.strip():
                     for imp in critique["improvements"]:
                         st.markdown(f"  → {imp}")
 
-        # Agent log timeline
+        # ── Agent 流水线日志时间线 ───────────────────────────────────────────
         with st.expander("🔄 Agent Pipeline Log"):
             for step in final_state.get("agent_log", []):
                 agent = step["agent"]
@@ -193,7 +211,7 @@ if run_btn and task.strip():
                 st.text(step["output_preview"][:200])
                 st.divider()
 
-        # Download button
+        # ── Markdown 下载 ────────────────────────────────────────────────────
         st.download_button(
             label="⬇️ Download Output",
             data=final_state.get("final_output", ""),
@@ -201,6 +219,7 @@ if run_btn and task.strip():
             mime="text/markdown",
         )
 
+        # 写入 session 历史，供侧边栏 History expander 展示
         st.session_state.history.append({
             "task": task,
             "scenario": scenario,

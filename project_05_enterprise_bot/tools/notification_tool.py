@@ -1,8 +1,18 @@
-# tools/notification_tool.py — Mock notification sender (Slack/Email/Teams)
+"""
+tools/notification_tool.py — 企业通知发送 LangChain 工具
+
+【职责】
+提供 send_notification（向 Slack/Email/Teams 发送消息）与 get_notifications
+（审计最近发送记录）两个 @tool 函数。
+
+【设计原因】
+高权限操作（经理/管理员发 urgent 通知）需经 Agent + RBAC 双重 gate；
+当前用内存列表模拟发送结果，接口形状与真实 Webhook/SMTP 集成保持一致。
+"""
 from langchain_core.tools import tool
 from loguru import logger
 
-# Mock notification store — replace with Slack API / SMTP / Teams webhook
+# 演示用通知发送记录 — 生产环境对接 Slack API / SMTP / Teams Webhook
 _NOTIFICATIONS: list[dict] = []
 
 
@@ -21,7 +31,7 @@ def send_notification(
         priority: normal | urgent
     Returns: confirmation of notification sent
     """
-    # Sanitize
+    # 清洗收件人与消息长度，校验 channel/priority 枚举
     to = to.strip()[:100]
     message = message.strip()[:500]
     channel = channel.lower() if channel.lower() in {"slack", "email", "teams"} else "slack"
@@ -30,6 +40,7 @@ def send_notification(
     if not to or not message:
         return "Error: 'to' and 'message' are required."
 
+    # 追加到内存队列，模拟「已发送」状态供审计查询
     _NOTIFICATIONS.append({
         "to": to,
         "message": message,
@@ -46,6 +57,7 @@ def get_notifications(limit: int = 5) -> str:
     Input: number of recent notifications to retrieve (1-20).
     """
     limit = max(1, min(limit, 20))
+    # 取列表尾部最近 limit 条，再倒序展示（最新的在前）
     recent = _NOTIFICATIONS[-limit:]
     if not recent:
         return "No notifications sent yet."

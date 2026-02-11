@@ -1,4 +1,13 @@
-# app.py — Streamlit UI for Deep Research Agent
+"""
+app.py — Deep Research Agent Streamlit 交互界面
+
+【职责】
+提供可视化研究入口：主题输入、流水线步骤进度、指标展示、报告下载与历史摘要。
+
+【设计原因】
+Streamlit 快速搭建演示 UI，research_stream 驱动实时步骤反馈；
+最终再调用 research() 获取完整状态（流式模式仅推送增量 updates）。
+"""
 import time
 import streamlit as st
 
@@ -12,10 +21,11 @@ st.set_page_config(
 from config import DEFAULT_MODEL, OLLAMA_BASE_URL, MAX_SEARCH_ROUNDS, SEARCHES_PER_ROUND
 from agent import research_stream, research
 
-# ── Session state ─────────────────────────────────────────────────────────────
+# ── 会话状态 ──────────────────────────────────────────────────────────────────
 if "reports" not in st.session_state:
     st.session_state.reports = []
 
+# 各 LangGraph 节点对应的 UI 图标与展示标签
 STEP_ICONS = {
     "generate_queries": "🎯",
     "search":           "🔍",
@@ -34,6 +44,7 @@ STEP_LABELS = {
     "polish_report":    "Report Polisher",
 }
 
+# 侧边栏示例主题，降低用户冷启动成本
 EXAMPLE_TOPICS = [
     "AI agent market 2025: size, key players, growth trends",
     "Impact of local LLMs on enterprise data privacy",
@@ -42,7 +53,7 @@ EXAMPLE_TOPICS = [
     "Generative AI in financial services: opportunities and risks",
 ]
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ── 侧边栏 ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🔬 Deep Research Agent")
     st.caption("Iterative Search · Gap Analysis · Auto-polish Report")
@@ -61,6 +72,7 @@ with st.sidebar:
     st.divider()
     st.markdown("### 💡 Example Topics")
     for ex in EXAMPLE_TOPICS:
+        # 点击示例将主题写入 session，主区域 text_input 通过 prefill 读取
         if st.button(ex[:45] + ("..." if len(ex) > 45 else ""), key=ex):
             st.session_state["prefill"] = ex
 
@@ -70,7 +82,7 @@ with st.sidebar:
         for r in reversed(st.session_state.reports[-3:]):
             st.caption(r["topic"][:40])
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── 主区域 ────────────────────────────────────────────────────────────────────
 st.markdown("# 🔬 Deep Research Agent")
 st.caption(
     f"Iterative search → synthesis → gap analysis → report writing  ·  "
@@ -91,7 +103,7 @@ with col1:
 if start and topic.strip():
     st.divider()
 
-    # Progress tracker
+    # 顶部流水线步骤指示器：每列对应一个节点，初始为等待态
     progress_cols = st.columns(len(STEP_LABELS))
     step_placeholders = {}
     for i, (node, label) in enumerate(STEP_LABELS.items()):
@@ -102,7 +114,7 @@ if start and topic.strip():
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # Research notes live display
+    # 可折叠的实时研究笔记区域（流式阶段占位，最终由 research() 填充）
     notes_expander = st.expander("📖 Live Research Notes", expanded=False)
     notes_placeholder = notes_expander.empty()
 
@@ -113,6 +125,7 @@ if start and topic.strip():
     completed_steps = []
 
     with st.spinner("Deep research in progress..."):
+        # 消费 SSE 风格事件，逐步更新步骤 UI
         for event in research_stream(topic.strip()):
             if event["type"] == "step":
                 node = event["node"]
@@ -124,6 +137,7 @@ if start and topic.strip():
                     f"**{STEP_ICONS.get(node, '🤖')}**\n{STEP_LABELS.get(node, node)}\n✅ {ms}ms"
                 )
                 completed_steps.append(node)
+                # 按已完成的不重复节点数估算总进度（多轮时同一节点会多次完成）
                 progress = len(set(completed_steps)) / len(step_order)
                 progress_bar.progress(min(progress, 1.0))
 
@@ -137,30 +151,29 @@ if start and topic.strip():
                 progress_bar.progress(1.0)
                 status_text.markdown(f"✅ Research complete! Total: {event['total_latency_ms']}ms")
 
-    # Final result
+    # 流式结束后同步 invoke 一次，获取完整 final_report 与 step_log
     with st.spinner("Loading final report..."):
         final = research(topic.strip())
 
     progress_bar.progress(1.0)
 
     if final:
-        # Metrics
+        # 关键指标四列展示
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Search Rounds", final.get("round", 0))
         m2.metric("Total Queries", len(final.get("all_queries", [])))
         m3.metric("Coverage", f"{final.get('coverage_score', 0):.0%}")
         m4.metric("Total Time", f"{final.get('total_latency_ms', 0) // 1000}s")
 
-        # Report display
+        # 最终报告 Markdown 渲染
         report = final.get("final_report", final.get("report_draft", "No report generated."))
         with st.expander("📊 Full Research Report", expanded=True):
             st.markdown(report)
 
-        # Research notes
         with st.expander("📖 Research Notes"):
             st.markdown(final.get("research_notes", ""))
 
-        # Gap analysis
+        # 最后一轮缺口分析详情
         gap = final.get("gap_analysis", {})
         if gap:
             with st.expander("🕵️ Final Gap Analysis"):
@@ -174,7 +187,7 @@ if start and topic.strip():
                     for item in gap["gaps"]:
                         st.markdown(f"  △ {item}")
 
-        # Step timeline
+        # 各步骤耗时与输出预览时间线
         with st.expander("🔄 Research Timeline"):
             for step in final.get("step_log", []):
                 icon = STEP_ICONS.get(step["step"].split()[0].lower().replace(" ", "_"), "📌")
@@ -183,11 +196,10 @@ if start and topic.strip():
                     st.text(step["preview"][:150])
                 st.divider()
 
-        # Saved path
         if final.get("saved_path"):
             st.success(f"Report saved: `{final['saved_path']}`")
 
-        # Download
+        # 浏览器端下载 Markdown 文件
         st.download_button(
             "⬇️ Download Report (.md)",
             data=report,
@@ -195,6 +207,7 @@ if start and topic.strip():
             mime="text/markdown",
         )
 
+        # 写入会话历史，供侧边栏展示最近报告
         st.session_state.reports.append({
             "topic": topic,
             "rounds": final.get("round", 0),
