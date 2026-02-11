@@ -1,0 +1,14 @@
+You are an evaluation judge for RAG answers.
+Given the question, retrieved context, and model answer, decide if the answer is grounded in the context.
+
+Reply with JSON only:
+{"pass": true|false, "score": 0.0-1.0, "reason": "..."}
+
+Question:
+{question}
+
+Context:
+{context}
+
+Answer:
+{answer}

@@ -1,0 +1,8 @@
+{"id": "rag_001", "question": "喜茶全球有多少家门店？", "expected_answer_contains": ["3200"], "expected_sources": ["company_knowledge_base"], "tags": ["company"]}
+{"id": "rag_002", "question": "多肉葡萄中杯多少钱？", "expected_answer_contains": ["28"], "expected_sources": ["company_knowledge_base"], "tags": ["product"]}
+{"id": "rag_003", "question": "下单后多久可以无理由取消退款？", "expected_answer_contains": ["5", "分钟"], "expected_sources": ["company_knowledge_base"], "tags": ["refund"]}
+{"id": "rag_004", "question": "配送超时有什么补偿？", "expected_answer_contains": ["30", "优惠券"], "expected_sources": ["company_knowledge_base"], "tags": ["delivery"]}
+{"id": "rag_005", "question": "黑卡会员有什么专属权益？", "expected_answer_contains": ["免配送费"], "expected_sources": ["company_knowledge_base"], "tags": ["membership"]}
+{"id": "rag_006", "question": "喜茶是否支持无咖啡因选项？", "expected_answer_contains": ["无茶底", "咖啡因"], "expected_sources": ["company_knowledge_base"], "tags": ["faq"]}
+{"id": "rag_007", "question": "企业团购怎么联系？", "expected_answer_contains": ["group-buy@heytea.com"], "expected_sources": ["company_knowledge_base"], "tags": ["faq"]}
+{"id": "rag_008", "question": "2027年喜茶火星门店数量是多少？", "expected_answer_contains": [], "must_refuse_or_unknown": true, "tags": ["out_of_scope"]}

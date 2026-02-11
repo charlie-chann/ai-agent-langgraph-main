@@ -1,0 +1,11 @@
+{
+  "suite": "rag_qa",
+  "prompt_version": "v1",
+  "metrics": {
+    "avg_total_score": 0.75,
+    "hit_rate": 0.75,
+    "judge_pass_rate": 0.75,
+    "refuse_accuracy": 0.8
+  },
+  "notes": "首次跑通 eval 后，用 python eval/harness/run_eval.py --update-baseline 写入真实基线"
+}
