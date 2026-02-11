@@ -1,72 +1,92 @@
-陈永楚		
+陈永楚	
 联系方式：
 电子邮箱：
 开发经验：	15811680146
 939806859@qq.com
-近10年的相关行业从业经验		
+10年+ 移动端与大前端架构经验（喜茶门店通核心开发），2025年起专注 LLM Agent 与 RAG 工程化落地。
+擅长 Agent 服务端（FastAPI / LangGraph）与 App/Web/小程序客户端全链路交付，具备 SSE 流式对话、工具调用可视化及大规模 B 端产品工程化经验。
+主动从移动端专家转型 AI 应用工程，可将 Agent 能力稳定接入企业现有产品体系。 	
 求职意向                                                                        
-期望职位:Agent开发工程师（全栈）
-期望薪资:40-45K
+期望职位: Agent 开发工程师（全栈）/ LLM 应用工程师（移动端 + 服务端复合背景）
+期望薪资: 面议
 教育经历                                                                       
-2010.09-2014.06        北京师范大学珠海校区       计算机科学与技术                                  本科
+2010.09-2014.06        北京师范大学珠海校区       计算机科学与技术                        本科
 奖学金：学习优秀奖学金二等奖
 在校ACM程序设计一等奖    
 英语等级 CET4
 专业技能                                                              
 【AI Agent / LLM 应用】
-• 熟悉 AI Agent 应用开发流程：Prompt 设计（ChatPromptTemplate / ReAct PromptTemplate）、Tool/Function Calling、多轮对话与 Session 记忆管理
-• 熟悉 RAG 全链路：文档切分与入库、Embedding 向量化、ChromaDB 向量存储、Hybrid 检索（BM25 + 语义向量）、Cross-Encoder Rerank、引用溯源、Grader 自校正与 Query 改写重试
-• 熟悉 LangChain / LangGraph：ReAct 工具循环（create_react_agent / ToolNode / bind_tools）、StateGraph 状态编排与 conditional_edges 条件路由、Supervisor 多 Agent 协作、LCEL 链式调用（prompt | llm）
-• 熟悉 Deep Research / 迭代式 Agent：多轮搜索、缺口分析（Gap Analysis）、研究笔记综合与报告生成（项目 04/26 同类模式）
-• 了解 MCP（Model Context Protocol）stdio / Streamable HTTP 工具接入；Agent 安全：Prompt 注入清洗、SSRF/输入校验、PII 脱敏、RBAC 权限控制（企业 Bot 场景）
-• 具备 LLM 应用工程化经验：Ollama 本地部署、云端大模型 API 路由、SSE 流式输出、FastAPI + Streamlit 双端交付
-• 熟悉常见 Agent 形态：单 Agent 工具调用、多 Agent 协作、领域算法工具 + LLM 报告、Browser Agent 网页自动化、Code Agent 沙箱执行
-• 了解自进化 RAG 思路：用户反馈驱动检索权重优化（boost_score + 语义相似度融合）
+• Agent 架构与编排：LangChain / LangGraph StateGraph 状态机、ReAct 工具循环、Supervisor 多 Agent 协作、LCEL 链式调用；熟悉控制流编排与横切能力（超时/熔断/压缩/降级）
+• 生产级 RAG 全链路：文档解析与切分、Embedding 向量化、ChromaDB + BM25 Hybrid 检索、Cross-Encoder Rerank、知识图谱增强（规则/LLM NER）、冲突检测、Grader 自校正与 Query 改写重试、引用溯源
+• 企业级工程化：FastAPI 网关（JWT + RBAC 权限隔离）、Redis 答案缓存与 SSE 流式 WAL 断点续推、PostgreSQL 多轮会话持久化、HITL 人工审批（interrupt_before + Checkpointer）
+• Agent 评测与质量：Eval Harness 批量评测、Prompt 版本化、LLM Judge + 规则打分、回归基线与 A/B 对比；可观测性（Tracing / Metrics）
+• Agent 安全：Prompt 注入防护、Guard 安全门控、SSRF/输入校验、PII 脱敏、敏感操作 HITL 拦截
+• 多场景 Agent 落地：Deep Research 迭代搜索与报告生成、RSS/资讯聚合与 AI 摘要、对话式售前/方案生成、MCP 工具接入
+• LLM 工程化：Ollama 本地私有化部署、通义/DeepSeek 等云端 API 路由与切换、SSE 流式输出、Docker 全栈交付；前端 Streamlit / Next.js + React 双端交付
 
 【工程与全栈协作】
 • 熟练 JavaScript/TypeScript/Objective-C/Kotlin/Java，熟悉 Python 用于 Agent 与服务端开发
 • 熟悉 RESTful API、JSON 数据结构与前后端联调；LLM 结构化输出解析（JSON 抽取与容错 fallback）
 • 熟悉 Git 分支管理、Code Review；Jenkins CI；了解 Docker 容器化部署与 uv 依赖管理
-• 注重代码规范、模块化解耦与可测试性（pytest 单元测试，30 套 Agent 项目测试实践）
 
 【移动端】
 • 8年+ iOS（Objective-C/Swift）与 React Native 实战经验，可独立负责移动端架构与交付
 • 熟悉 MVVM/MVC、组件化/模块化、多线程（GCD）、内存与启动性能优化（Instruments）
 • 有 IM、支付、地图、蓝牙（CoreBluetooth）、第三方 SDK 集成与上架经验
 • 可将 Agent 能力落地为 App/Web/小程序客户端：对话 UI、SSE 流式展示、工具调用过程可视化
-
 工作经历                                                                         
-2026.01-至今           深圳市滚水科技有限公司（https://boilingwater.cn/）
+2026.01-至今           
+·深圳市滚水科技有限公司（https://boilingwater.cn/）
 ·职位：全栈 Agent 开发工程师
-·主要负责方向：对话式 AI / 企业知识库 RAG、行业定制 Agent 方案落地；兼顾部分管理端与对话前端、Agent 服务 API 开发与联调
+·主要负责方向：对话式 AI / 企业知识库 RAG、行业定制 Agent 方案从 POC 到交付；负责 Agent 服务 API、对话前端与管理端联调，支撑官网案例演示与客户售前方案落地
 
-·项目职责：
-1）负责 Agent 核心链路设计与开发：Prompt 模板、Tool/Function Calling、多轮上下文、流式输出与异常降级
-2）负责企业知识库 RAG 模块：文档解析与切分、向量检索、Cross-Encoder Rerank 精排、Grader 答案校验与 query 改写重试
-3）基于 LangChain / LangGraph 实现 ReAct 工具循环、多 Agent 协作编排（Planner / Researcher / Writer 等节点）及状态管理
-4）负责 Agent 服务后端（FastAPI）：会话接口、SSE 流式推送、鉴权与限流、对接通义/DeepSeek 等 LLM API 及 Ollama 本地模型
-5）参与对话式售前/方案生成、AI 写作助手、社区团购等业务 Demo 的 Agent 能力封装与方案演示落地
-6）负责部分 Web 管理端与对话 UI：流式 Markdown 渲染、引用来源展示、工具调用过程可视化；与产品/售前协作完成需求拆解与迭代交付
-7）编写 pytest 单元测试，保障工具函数、RAG 链路与 API 契约稳定；参与 Docker 部署与环境配置
+·核心职责：
+1）主导生产级 RAG Agent 架构设计与开发：LangGraph 六层分层（网关/调度/执行/工具/基础设施）、Guard → Rewrite → Retrieve → Generate → Grade 闭环
+2）负责企业知识库核心模块：Hybrid 检索（BM25 + 向量）+ KG 增强 + 冲突检测、Grader 自校正与 Query 改写重试、Eval Harness 回归评测
+3）负责 Agent 服务后端（FastAPI）：JWT/RBAC 权限隔离、Redis 缓存与限流、SSE 流式推送与 WAL 断点续推、PostgreSQL 多轮会话、HITL 人工审批
+4）沉淀 30+ 可复用 Agent 模板（RAG / ReAct / 多 Agent / Deep Research / 资讯聚合 / 社媒内容等），快速支撑官网 boilingwater.cn 行业案例与客户 POC
+5）参与 AI 写作助手、社区团购、K12 测评、慢病管理等售前 Demo 的 Agent 能力封装；负责流式 Markdown 渲染、引用溯源与工具调用可视化
+6）编写 pytest 单元/集成测试，保障 RAG 链路、API 契约与流式协议稳定
 
-·项目涉及部分相关技术：
-·LangChain、LangGraph、LCEL（prompt | llm）、ChatPromptTemplate / PromptTemplate
-·RAG（Chroma/向量库、Hybrid 检索、Rerank、Agentic Grader 自校正）
-·ReAct Agent、ToolNode、MCP 工具接入思路、Session/上下文管理
-·Python、FastAPI、Streamlit、RESTful API、SSE 流式输出
-·Ollama 本地部署；通义千问 / DeepSeek 等云端大模型 API 路由与切换
-·TypeScript/React（管理端/对话页）；Git、Docker；pytest
+·代表产品项目：
+
+【企业级大模型智能知识库】（核心负责人）2025.10 - 至今
+·背景：面向工程/制造类客户，海量异构文档（PDF/Word/表格）需按角色权限隔离检索，防止非授权信息外泄
+·流程：Hybrid 关键词 + 语义向量检索 → Cross-Encoder Rerank → 知识图谱实体关联 → Guard 安全门控 → Grader 评分不通过自动改写重检索；JWT/RBAC 权限隔离 + 内网私有化部署（Ollama）；Eval Harness 自动化评测 + 回归门禁
+·结果：检索准确率 97.5%；0 起外部信息泄露；问答效率提升约 87%
+
+【Daily Digest | 每日资讯自动订阅】（负责人）2025.11 - 至今
+·背景：客户需每日跟踪多平台资讯（RSS/网页/PDF/社媒），人工筛选耗时且易遗漏
+·流程：多源 RSS/网页采集 → 去重排序与订阅者偏好过滤 → AI 主题分类与摘要生成 → Cron 定时推送（支持时区）；FastAPI SSE 流式接口 + Streamlit 管理端
+·结果：采集-过滤-生成-推送全流程自动化；日均节省 1h+ 人工；去重率 >85%
+
+【工程项目工作日历排班系统】（负责人）2025.8 - 至今
+·背景：多施工方并行工程排班，Excel 协作易冲突、人员证件信息存在泄露风险
+·流程：局部预览 + JSON Patch 增量写入替代整表重写；服务端冲突检测与自动消解；人员信息脱敏与接口权限管控
+·结果：关键排班 100% 无冲突；0 起信息泄露；人工编辑耗时降低约 75%
+
+·技术栈：
+LangChain、LangGraph、LCEL、ChromaDB、BM25、Cross-Encoder Rerank、Knowledge Graph
+Python、FastAPI、Streamlit、Next.js + React、PostgreSQL、Redis、Docker
+Ollama / 通义千问 / DeepSeek API 路由；SSE 流式 + WAL 断点续推；JWT/RBAC、HITL、Eval Harness；pytest
 
 ·项目成果：
-1）完成多套可复用 Agent 模板（RAG 问答、多工具 ReAct、多 Agent 内容生产），支撑官网方案演示与客户 POC 快速搭建
-2）企业知识库 RAG 方案实现「检索 → 生成 → 评分 → 不通过重检索」闭环，降低幻觉与答非所问，提升问答可用性
-3）统一 Agent API 与流式协议，前端/App/小程序可复用同一套对话接口，缩短多端联调周期
-4）将 iOS/RN 大前端经验用于对话类产品：优化流式渲染体验、长列表性能与异常态提示，提升 B 端演示与客户试用满意度
+1）搭建生产级 RAG Agent 参考架构（六层分层 + 22 张架构图），成为团队 Agent 工程化交付标准
+2）30+ Agent 模板支撑 boilingwater.cn 官网 20+ 行业案例演示，客户 POC 搭建周期从数周缩短至数天
+3）RAG「检索 → 生成 → 评分 → 重检索」闭环 + Eval 回归门禁，显著降低幻觉与答非所问
+4）统一 Agent API 与 SSE 流式协议，前端/App/小程序可复用同一套对话接口；结合 RN 大前端经验优化流式渲染与异常态体验
 
 
-2021.11-2026.01        喜茶【深圳灵感之茶有限公司】                             
-·职位 : 大前端开发专家【偏React Native混编】
-·旗下相关项目名称：
+
+
+
+
+
+
+2021.11-2026.01        
+·喜茶【深圳灵感之茶有限公司】                             
+·职位 : 大前端开发专家【偏RN混编】
+·参与项目：
 1.电子秤半成品
 2.门店候餐屏系统
 3.门店收银台系统
@@ -75,94 +95,66 @@
 6.门店通App
 
 ·项目职责：
-·项目涉及部分相关技术 
-·项目成果
+1）作为大前端核心开发，主导门店通 App 架构设计与交付，并复用同类技术栈支撑电子秤、候餐屏、收银台、喜茶小程序、海外 App 等多端项目
+2）负责 React Native + 原生混编（iOS Objective-C/Swift、Android Kotlin）架构：Native Module 桥接、微应用 Bundle 动态加载、热更新与多环境打包发布链路
+3）搭建 TypeScript 类型安全路由（StackParamList）、Zustand 全局状态、Apisauce/Axios 网络层封装（Token 续期、权限拦截、Sentry 上报）及 RBAC 门店权限体系
+4）负责核心业务模块开发：工作台、任务中心（巡店/质检）、数据中心（ECharts 可视化）、业财中心、物料中心（订货/盘点/收货）、员工管理与消息中心等
+5）封装门店通 UI 组件库（Alert/Button/Loading/骨架屏/TabLayout 等）及 react-native-heytea-ui 通用组件，统一多端视觉与交互规范
+6）集成第三方能力：极光推送、钉钉登录、海康/萤石视频监控、Vision Camera 扫码、COS/OSS 文件上传、高德定位、友盟统计等
+7）建设 CI/CD 工程化：Jenkins 自动化打包、蒲公英/TestFlight 分发、Sentry 崩溃监控、Husky + ESLint 代码规范与多泳道环境配置
 
-                                    
-2017.06-2021.10        深圳市喂喂科技有限公司                              移动APP设计
-·职位 : 移动端主管 兼IOS开发组长
-·旗下相关项目名称：
-1.喂喂打工
-2.喂喂雇主
+·项目涉及部分相关技术：
+·React Native 0.73、TypeScript、React Navigation（Stack/BottomTab/MaterialTopTab）
+·iOS/Android 原生混编（NativeModules/Bridge）、微应用 Bundle 分包与热更新
+·Zustand、SWR、Immer、MMKV/AsyncStorage 状态与本地存储
+·Axios、Apisauce、RESTful API、JSON-BigInt、SSE 流式通信
+·React Native Reanimated、FlashList、Skia、ECharts 图表与列表性能优化
+·i18next 国际化、react-native-heytea-ui 自研组件库、WebView/H5 混合页面
+·Sentry 监控、JPush 推送、Jenkins CI、Docker/多环境 env-cmd 配置
+·Vision Camera、海康 SDK、COS/OSS 上传、钉钉 OAuth、高德定位
 
-·项目职责：
-1）负责整个客户端核心框架搭建，模块结构和流程逻辑 ，协助产品经理完成App功能模块设计、需求文档，以及开发的周期与计划
-2）负责所有网络请求及数据传递的实现和封装
-3）负责核心模块开发和改进，数据展示实现
-4）负责核与网络工程师探讨以及指定网络模块的优化方案
-5）负责核心模块代码编写
-6）负责优化项目性能,主要是内存管理以及代码规范性等统筹
+·项目成果：
+1）门店通 App 覆盖全国数千家门店日常使用，支撑工作台、任务、数据、业财、物料等核心业务闭环，显著提升门店数字化运营效率
+2）沉淀 RN 混编 + 微应用架构与热更新方案，复用于候餐屏、收银台、电子秤等门店硬件场景，缩短多项目交付周期
+3）统一网络层、权限体系与 UI 组件规范，降低跨项目维护成本；TypeScript 类型化路由减少页面传参错误
+4）完善自动化打包与多环境发布流程，支持 test/staging/prod 多泳道并行开发与灰度验证，保障门店端稳定迭代 
+                           
+2017.06-2021.10        
+·深圳市喂喂科技有限公司
+·职位：移动端主管 
+·项目：喂喂打工、喂喂雇主（灵活用工双端 App）
 
-·项目涉及部分相关技术 
-结合git以及cocopods对项目进行解耦,用模块化的方式设计app架构(设计远程仓库api数十个,仓库为腾讯码市)
-使用jenkins替代蒲公英配合测试实现定点定时自动打包敏捷式开发
-集成友盟,极光推送,腾讯IM,微信支付宝,谷歌地图等第三方库
-版本的自动更新以及其页面的数据统计 
-数据的动态加载缓存使用以及清除,页面滑动流畅性的优化
-启动时间优化 以及 各种系统优化,代码重构等
-各种自定义界面的实现以及其动画的处理
-采用面向对象的方式封装AFN相关方法以及相关优化调用
+·核心工作：
+1）负责双端 App 从 0 到 1 架构搭建，基于 Git + CocoaPods 组件化解耦，设计远程私有 Pod 数十个
+2）搭建网络层统一封装与数据传递机制，负责核心模块开发及与产品的需求拆解、迭代排期
+3）集成腾讯 IM、微信/支付宝支付、极光推送、友盟统计、谷歌地图等第三方 SDK
+4）与后端协作优化网络模块；负责启动时间、内存管理、列表流畅性等性能优化及代码规范统筹
+5）使用 Jenkins 实现定点定时自动打包，替代人工发版，缩短测试验证周期
 
-2014.05-2017.04         易停科技有限公司
-·职位 : IOS 开发高级工程师
-·项目职责：
-1）负责移动产品iOS客户端的开发和改进；
-2）面向iOS终端平台，进行前沿技术探索和软件架构设计工作；  
-3）负责移动平台新技术研究、功能扩展、现有开发方法的改进。 
-4）负责优化客户端软件的模块结构和流程逻辑 
-5）负责优化客户端软件相关产品适配，升级 
-6）参与与其他团队的沟通协调
+·技术栈：Objective-C、CocoaPods 组件化、AFNetworking、Jenkins CI
 
-·旗下相关项目名称：
-1.小泊停车(IOS端以及微信小程序端)
-2.海钓无人机rippton_IPad版（无人机硬件类）
-3.握趣映像（相机硬件类）
-4.飞常U惠（商城类）
-5.GPark（IM类）
+2014.05-2017.04        
+·易停科技有限公司
+·职位：iOS 开发高级工程师
+·项目：小泊停车（iOS + 微信小程序）、GPark（IM）、海钓无人机 iPad 版、飞常 U 惠等
 
-·项目涉及部分相关技术 
-n Runtime 交换⽅方法 method_exchangeImplementations()实现动态替换图片资源名 称 
-n Keychain 保存⽤用户登录密码以及开锁密钥
-n 使⽤用代理理、通知传递数据模型和消息
-n 使⽤用 SDWebImage 开源框架对图⽚片进⾏行行缓存 n 使⽤用 ShareSDK 集成微信、QQ、微博等分享 n 集成微信和⽀支付宝 SDK ⽀支付云存储订单
-n 使⽤用 DDLog 打印保存⽤用户⾏行行为⽇日志，定时上传⾄至服务器器
-n 使⽤用 NSOperation 以及 AFNetworking 框架实现⽹网络数据传输及 JSON 解析 n 使⽤用 UICollectionView 展示商品信息
-n 使⽤用代理理、通知传递数据模型和消息
-n 使⽤用 UITableView 布局⻚页⾯面，UIScrollView 布局滚动标签
-n 使⽤用 SDWebImage 开源框架对图⽚片进⾏行行缓存 
-n 利利⽤用 MJRefresh 进⾏行行上拉下拉刷新数据的实现 
-n 封装 TabBar 底部控制栏 
+·核心工作：
+1）负责 iOS 客户端架构设计与模块重构，参与小泊停车微信小程序端开发
+2）封装 AFNetworking 网络工具类，统一数据请求、JSON 解析与模型转换
+3）集成 ShareSDK、微信/支付宝 SDK；Keychain 安全存储；DDLog 行为日志上报
+4）负责核心 UI 与列表性能优化，参与启动、内存等系统级调优
 
-2012.01-2014.04         珠海艾特斯温软件有限公司       
-·职位 : IOS 开发工程师
-·项目职责：
-1）学习并配合开发团队完成开发任务
-2）负责优化客户端软件相关产品适配，升级 
-3）参与与其他团队的沟通协调
+·技术栈：Objective-C、AFNetworking、SDWebImage、微信小程序
 
-·旗下相关项目名称：
-1.大学生零零网项目 (商城类)
-2.豆果越吃越美项目(生活美容类)
-3.大学邦商城
-4.全景新闻直播
+2012.01-2014.04        
+·珠海艾特斯温软件有限公司
+·职位：iOS 开发工程师
+·项目：大学生零零网、豆果越吃越美、大学邦商城、全景新闻直播
 
-·项目涉及部分相关技术 
-n Keychain 保存⽤用户登录密码以及⽤用户账户信息
-n 使⽤用 NSOperation 以及 AFNetworking 框架实现⽹网络数据传输及 JSON 解析 n 使⽤用 UICollectionView 展示商品信息
-n 使⽤用代理理、通知传递数据模型和消息
-n 使⽤用 UITableView 布局⻚页⾯面，UIScrollView 布局滚动标签 
-n封装了基于sd_webImage,AFN的网络工具类,用于管理整个网络的数据获取以及相关请求的处理
-n利用WebView执行JavaScript脚本抓取网页中需要部分的节点，以屏蔽无关内容和广告
-n利用Runtime运行时环境，优化字典数据转模型数据的速度n 适配 IOS6-IOS7
-n 动画实现方面用到了核心动画，以及UIview的相关动画知识
-n使用UIPopoverController弹出城市搜索与选择界面并运用NSPredicate进行模糊查询
-n项目抽取了许多好用的分类，且对UICollectionView，UIScrollView等
-n多线程、NSRunLoop的使用
-                                                                   
-兴趣爱好                                                                     
-游戏:王者荣耀 英雄联盟 吃鸡等电子竞技
-户外运动:爬山,羽毛球,篮球
-自我评价                                                                        
-ü 良好的分析和独立解决问题的能力、做事有责任心，对工作充满热情 、勤奋好学 
-ü 对新技术的乐于探索和研究、敢挑重担、具有很强的团队精神 
-ü 学习成绩优秀，多次获得学校奖学金
+·核心工作：
+1）参与商城/生活美容/直播类 App 开发与版本适配，配合团队完成需求交付
+2）封装 SDWebImage + AFNetworking 网络工具类，负责 UITableView / UICollectionView 页面实现
+3）参与 MJRefresh 下拉刷新、WebView 混合开发及多线程实践，抽取通用 Category 复用
+
+
+
