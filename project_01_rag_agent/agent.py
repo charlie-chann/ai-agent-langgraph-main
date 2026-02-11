@@ -5,7 +5,7 @@ import json
 import time
 from typing import Generator, TypedDict, Annotated, List, Optional
 
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END

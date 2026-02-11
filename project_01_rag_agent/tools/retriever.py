@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from langchain_core.documents import Document
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from langchain_community.retrievers import BM25Retriever
 from loguru import logger
 
