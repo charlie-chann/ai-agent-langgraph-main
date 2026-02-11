@@ -125,9 +125,9 @@ def _run_chat(
     use_cache: bool,
 ) -> dict:
     store = get_conversation_store()
-    history = _load_history_from_store(conversation_id)
-    rid = new_request_id()
+    new_request_id()
     inc("requests_total")
+    history = _load_history_from_store(conversation_id)
 
     result = ask(
         message,
@@ -246,9 +246,9 @@ async def conversation_chat_stream(
 ):
     _ensure_conversation(user, conversation_id)
     store = get_conversation_store()
-    history = _load_history_from_store(conversation_id)
     new_request_id()
     inc("requests_total")
+    history = _load_history_from_store(conversation_id)
     store.append_message(conversation_id, "user", req.message)
 
     async def _gen():

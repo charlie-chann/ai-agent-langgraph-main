@@ -378,8 +378,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START(["api._run_chat()<br/>来自 04 网关聊天 Handler"]) --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
-    LOAD --> RID[new_request_id + metrics]
+    START(["api._run_chat()<br/>来自 04 网关聊天 Handler"]) --> RID[new_request_id + metrics]
+    RID --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
 
     RID --> A1["② compress_chat_history<br/>裁历史，不裁 question"]
     A1 --> A2{"③ Redis 查答案缓存<br/>cache_get<br/>（不是读 history）"}
@@ -423,8 +423,8 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START(["api.conversation_chat_stream()<br/>来自 04 网关流式 Handler"]) --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
-    LOAD --> RID[new_request_id + metrics]
+    START(["api.conversation_chat_stream()<br/>来自 04 网关流式 Handler"]) --> RID[new_request_id + metrics]
+    RID --> LOAD["① DB 读 history<br/>storage.list_messages<br/>→ dict_history_to_messages"]
     RID --> UMSG["写 user 消息<br/>append_message(user)<br/>（流式：在 ask 前写入）"]
 
     UMSG --> A1["② compress_chat_history<br/>裁历史，不裁 question"]
