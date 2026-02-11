@@ -5,7 +5,7 @@ flowchart TD
 
     PASS --> ROUTE
     RL -->|超限| E429[429 · 详图 06]
-    RL -->|OK| ROUTE{api.py 路由}
+    RL -->|OK| ROUTE{app/api 路由}
 
     ROUTE --> AUTH["/auth/token"]
     ROUTE --> CHAT["/conversations* /chat*"]

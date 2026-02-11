@@ -4,13 +4,13 @@ flowchart TD
         C2[每次 POST message]
     end
 
-    subgraph API["② api.py"]
+    subgraph API["② main.py / app/api"]
         A1[POST /conversations 创建]
         A2[GET /conversations/id/messages]
         A3[POST /conversations/id/chat]
     end
 
-    subgraph Store["storage/conversations.py"]
+    subgraph Store["app/infrastructure/persistence/conversations.py"]
         S1[(conversations 表)]
         S2[(messages 表<br/>role + content 明文)]
     end

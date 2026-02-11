@@ -1,11 +1,11 @@
 flowchart TD
     START(["②网关层 api._run_chat()<br/>详图 04"]) --> RID["②网关层 new_request_id + metrics"]
-    RID --> A2{"③调度层 cache_get<br/>详图 06 · ⑥Redis"}
+    RID --> LOAD["②网关层 读 history<br/>详图 22 · ⑥PG/SQLite"]
+    LOAD --> A1["③调度层 compress<br/>详图 20"]
+    A1 --> A2{"③调度层 cache_get<br/>详图 06 · ⑥Redis"}
 
     A2 -->|命中| A2H["③调度层 返回 cached"]
-    A2 -->|未命中| LOAD["②网关层 读 history<br/>详图 22 · ⑥PG/SQLite"]
-    LOAD --> A1["③调度层 compress<br/>详图 20"]
-    A1 --> A3["③调度层 invoke → ④执行层<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
+    A2 -->|未命中| A3["③调度层 invoke → ④执行层<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20/Chroma/BM25"]
 
     A3 --> A4["③调度层 打包 result"]
     A4 --> A5{可写缓存?}
@@ -22,4 +22,4 @@ flowchart TD
 
     RETURN -.->|hitl_pending| H09["③调度层 → 详图 09<br/>↳ ④13 · ⑥PG"]
 
-    %% cache·06 先于 history/compress；命中短路，未命中再读 PG + 压缩后进执行层
+    %% ③调度层=agent.ask()；②网关层=api._run_chat()

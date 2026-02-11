@@ -1,20 +1,20 @@
 flowchart TB
     subgraph L1["① 客户端层 Client"]
-        ST[Streamlit app.py]
+        ST[Streamlit app_ui.py]
         CLI[curl / SDK / Eval Harness]
     end
 
     subgraph L2["② 网关层 Gateway"]
-        API[api.py FastAPI]
+        API[main.py + app/api FastAPI]
         AUTH[JWT + RBAC]
         RL[Rate Limit]
         CACHE[Redis 答案缓存]
         RID[request_id]
-        CONV[storage/conversations<br/>会话读/写]
+        CONV[app/infrastructure/persistence/conversations<br/>会话读/写]
     end
 
     subgraph L3["③ 调度层 Scheduling · 详图 07–10"]
-        AGENT[agent.py]
+        AGENT[app/services/rag_service.py]
         COMP[compression 压缩]
     end
 

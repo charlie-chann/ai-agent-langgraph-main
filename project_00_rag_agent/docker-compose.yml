@@ -72,7 +72,7 @@ services:
       - ./chroma_db:/app/chroma_db
       - ./kg_store:/app/kg_store
       - rag_uploads:/tmp/rag_uploads_v2
-    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   rag-ui:
     build: .
@@ -85,7 +85,7 @@ services:
       - "8501:8501"
     environment:
       API_BASE_URL: http://rag-api:8000
-    command: ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    command: ["streamlit", "run", "app_ui.py", "--server.port=8501", "--server.address=0.0.0.0"]
 
 volumes:
   ollama_data:

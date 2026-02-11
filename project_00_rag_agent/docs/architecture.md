@@ -4,6 +4,8 @@
 
 > 生产级 RAG Agent：LangGraph + JWT/RBAC + Hybrid 检索 + 知识图谱 + HITL + Redis 缓存
 
+> **目录说明（2026 重构）**：代码收敛到 `app/` 分层；入口为 `main.py`（API）与 `app_ui.py`（Streamlit）。旧路径 `agent.py` / `tools/` / `prompts/` / `graph/` 保留为兼容 shim。详见下文「一、目录结构总览」。
+
 ---
 
 ## 〇、全项目端到端总览（图 `00`）
@@ -95,50 +97,43 @@ flowchart TD
 
 ```
 project_00_rag_agent/
-├── agent.py                 # 对外入口：ask / ask_stream / resume_hitl / startup
-├── api.py                   # FastAPI HTTP 层
-├── app.py                   # Streamlit UI（HTTP 客户端，仅经 api.py）
-├── config.py                # pydantic-settings 全量配置
+├── main.py                      # ASGI 入口：create_app / 中间件 / include_router（uvicorn main:app）
+├── app_ui.py                    # Streamlit UI（HTTP 客户端，仅经 FastAPI）
+├── config.py                    # pydantic-settings 全量配置
+├── agent.py / tools/ / prompts/ / graph/   # 旧导入兼容 shim（eval 等）
 │
-├── core/                    # 横切能力
-│   ├── compression.py       # 对话压缩 + RAG context 预算
-│   ├── timeouts.py          # LLM 调用超时
-│   ├── circuit_breaker.py   # LLM/Embed 熔断
-│   └── exceptions.py        # 结构化错误码
+├── app/                         # 应用主包
+│   ├── api/                     # 【接口层】路由薄封装
+│   │   ├── deps.py              # 公共 Depends
+│   │   ├── errors.py            # RAGError → HTTP
+│   │   └── v1/
+│   │       ├── chat.py          # 会话 / chat / stream
+│   │       ├── ingest.py        # /ingest
+│   │       ├── hitl.py          # /hitl/resume
+│   │       └── health.py        # auth / health / ready / stats / metrics
+│   ├── schemas/                 # Pydantic DTO
+│   ├── services/
+│   │   ├── rag_service.py       # ask / ask_stream / resume_hitl（原根目录 agent.py）
+│   │   └── warmup_service.py    # 启动预热 BM25
+│   ├── agent/                   # LangGraph 领域
+│   │   ├── graph/               # state / nodes / edges / builder / checkpointer
+│   │   └── prompts/rag_prompts.py
+│   ├── retrieval/               # 原 tools/：retriever / ingest / KG / conflict
+│   ├── gateway/                 # 鉴权 / 限流 / request_id（原 middleware 网关部分）
+│   ├── infrastructure/
+│   │   ├── persistence/         # conversations / stream_wal（原 storage/）
+│   │   ├── cache/redis_cache.py # 答案缓存（原 middleware/cache.py）
+│   │   ├── providers/factory.py # Ollama / OpenAI
+│   │   └── observability/metrics.py
+│   └── core/                    # compression / timeouts / circuit_breaker / streaming / SSE
 │
-├── middleware/              # 网关中间件
-│   ├── auth.py              # JWT + RBAC
-│   ├── cache.py             # Redis 答案缓存
-│   ├── rate_limit.py        # 限流
-│   └── request_context.py   # request_id
-│
-├── storage/                 # 会话持久化
-│   └── conversations.py     # PostgreSQL/SQLite conversations + messages
-│
-├── providers/               # 模型 Provider 抽象
-│   └── factory.py           # Ollama / OpenAI 切换
-│
-├── graph/                   # LangGraph 核心
-│   ├── state.py             # RAGState
-│   ├── nodes.py             # guard/rewrite/retrieve/generate/grade/hitl
-│   ├── edges.py             # 条件路由
-│   ├── builder.py           # 编译图 + interrupt_before
-│   └── checkpointer.py      # Memory / Postgres 持久化
-│
-├── tools/                   # 业务工具
-│   ├── retriever.py         # Hybrid + ACL + Rerank + KG
-│   ├── ingest.py            # 安全入库
-│   ├── knowledge_graph.py   # 三元组存储/查询
-│   ├── kg_extractor.py      # 规则 + LLM NER 抽取
-│   └── conflict.py          # 文档冲突检测
-│
-├── prompts/rag_prompts.py   # guard / rewrite / rag / grade
-├── observability/metrics.py # 指标计数
-├── tests/                   # 单元 + API + 集成测试
-├── sample_docs/             # 样例知识库
+├── tests/{api,services,agent,retrieval}/
+├── sample_docs/
+├── scripts/
 ├── Dockerfile + docker-compose.yml
-└── docs/architecture.md     # 本文档
+└── docs/architecture.md         # 本文档
 ```
+
 
 ---
 
@@ -154,21 +149,21 @@ project_00_rag_agent/
 ```mermaid
 flowchart TB
     subgraph L1["① 客户端层 Client"]
-        ST[Streamlit app.py]
+        ST[Streamlit app_ui.py]
         CLI[curl / SDK / Eval Harness]
     end
 
     subgraph L2["② 网关层 Gateway"]
-        API[api.py FastAPI]
+        API[main.py + app/api FastAPI]
         AUTH[JWT + RBAC]
         RL[Rate Limit]
         CACHE[Redis 答案缓存]
         RID[request_id]
-        CONV[storage/conversations<br/>会话读/写]
+        CONV[app/infrastructure/persistence/conversations<br/>会话读/写]
     end
 
     subgraph L3["③ 调度层 Scheduling · 详图 07–10"]
-        AGENT[agent.py]
+        AGENT[app/services/rag_service.py]
         COMP[compression 压缩]
     end
 
@@ -223,12 +218,12 @@ flowchart TB
 | 层 | 职责（一句话） | 主要代码 | 本文章节 | 核心流程图 |
 |----|----------------|----------|----------|------------|
 | **全栈** | 端到端主路径 + ingest + HITL 汇总 | 全文 | **〇** | **`00` 全项目总览** |
-| **① 客户端** | 收集输入、展示结果；经 HTTP 调用网关 | `app.py`, eval harness | **三** | `02` UI 全栈路径、`03` Eval |
-| **② 网关层** | 鉴权、限流、答案缓存、request_id；**会话 history 从 Postgres 加载** | `api.py`, `middleware/*`, `storage/conversations.py` | **四** | `04`–`06`、`22` 会话存储 |
-| **③ 调度层** | 压缩历史、查答案缓存、组装 state、调用 LangGraph | `agent.py` | **五** | **`07`–`10`** ask / stream / HITL / startup |
-| **④ 执行层** | guard/HITL/改写/检索/生成/评分的有状态工作流 | `graph/*` | **六** | **`11`–`13`** 主图 / State / Checkpointer |
-| **⑤ 工具层** | 入库、混合检索、KG、冲突检测 | `tools/*` | **七** | **`14`–`17`** 检索 / ingest / 冲突 / KG |
-| **⑥ 基础设施** | 模型调用、熔断、超时、持久化存储 | `providers/`, `core/`, 磁盘/Redis/PG | **八** | **`18`–`21`** 熔断 / 超时 / 压缩 / Docker |
+| **① 客户端** | 收集输入、展示结果；经 HTTP 调用网关 | `app_ui.py`, eval harness | **三** | `02` UI 全栈路径、`03` Eval |
+| **② 网关层** | 鉴权、限流、答案缓存、request_id；**会话 history 从 Postgres 加载** | `main.py`, `app/api/*`, `app/gateway/*` + `app/infrastructure/cache`, `app/infrastructure/persistence/conversations.py` | **四** | `04`–`06`、`22` 会话存储 |
+| **③ 调度层** | 压缩历史、查答案缓存、组装 state、调用 LangGraph | `app/services/rag_service.py` | **五** | **`07`–`10`** ask / stream / HITL / startup |
+| **④ 执行层** | guard/HITL/改写/检索/生成/评分的有状态工作流 | `app/agent/graph/*` | **六** | **`11`–`13`** 主图 / State / Checkpointer |
+| **⑤ 工具层** | 入库、混合检索、KG、冲突检测 | `app/retrieval/*` | **七** | **`14`–`17`** 检索 / ingest / 冲突 / KG |
+| **⑥ 基础设施** | 模型调用、熔断、超时、持久化存储 | `app/infrastructure/providers/`, `app/core/`, `app/infrastructure/persistence/`, 磁盘/Redis/PG | **八** | **`18`–`21`** 熔断 / 超时 / 压缩 / Docker |
 
 **客户端路径**：Streamlit / curl / SDK 均经 **② 网关层** → ③ → ④ → ⑤ → ⑥ → 响应回 UI。
 
@@ -240,7 +235,7 @@ flowchart TB
 
 **本层职责**：人机交互、会话状态（`conversation_id` / `token` / UI 展示用 `messages`）、把用户操作转为 HTTP 调用；**不负责**检索与生成。**chat_history 由服务端 PostgreSQL 存储**，客户端只传 `conversation_id` + `message`。
 
-### 3.1 Streamlit UI 全栈路径（`app.py`）
+### 3.1 Streamlit UI 全栈路径（`app_ui.py`）
 
 下图在 **① 客户端视角** 画出经 **② 网关** 进入 **③～⑥** 的完整调用链。终点 `SHOW` 是网关返回 JSON **之后** 的 UI 渲染。
 
@@ -308,7 +303,7 @@ flowchart LR
 
 ---
 
-## 四、层 2：网关层（`api.py` + `middleware/`）
+## 四、层 2：网关层（`main.py` + `app/api/` + `app/gateway/`）
 
 **读图说明**：`04` 是网关总览；**限流见 `06`**、**JWT/RBAC 见 `05`**。答案缓存在 `api` 中间件里不展开，由 **③调度层** 在 `07`/`08` 里 `cache_get/set`（`06`）；ingest 成功后 **②网关层** 调 `cache_delete_prefix`（`06`）。
 
@@ -327,7 +322,7 @@ flowchart TD
 
     PASS --> ROUTE
     RL -->|超限| E429[429 · 详图 06]
-    RL -->|OK| ROUTE{api.py 路由}
+    RL -->|OK| ROUTE{app/api 路由}
 
     ROUTE --> AUTH["/auth/token"]
     ROUTE --> CHAT["/conversations* /chat*"]
@@ -366,7 +361,7 @@ flowchart TD
 
 </details>
 
-### 4.2 JWT 鉴权 + RBAC 流程（`middleware/auth.py`）
+### 4.2 JWT 鉴权 + RBAC 流程（`app/gateway/auth.py`）
 
 ![JWT + RBAC](./diagrams/05_jwt_rbac.png)
 
@@ -409,7 +404,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph Cache["middleware/cache.py"]
+    subgraph Cache["app/infrastructure/cache/redis_cache.py"]
         C1["ask 前 cache_key<br/>question + roles + conversation_id"] --> C2{Redis 命中?}
         C2 -->|是| C3[直接返回答案 cached=true]
         C2 -->|否| C4[跑完整图]
@@ -418,13 +413,13 @@ flowchart TD
         C5 -->|是| C7[不写缓存]
     end
 
-    subgraph RateLimit["middleware/rate_limit.py"]
+    subgraph RateLimit["app/gateway/rate_limit.py"]
         R1[每请求 incr key] --> R2{count > 60/min?}
         R2 -->|是| R3[429 + Retry-After]
         R2 -->|否| R4[放行]
     end
 
-    subgraph History["storage/conversations.py — 非 Redis"]
+    subgraph History["app/infrastructure/persistence/conversations.py — 非 Redis"]
         H1[chat_history 明文存 Postgres/SQLite]
         H2[客户端只传 conversation_id]
     end
@@ -436,7 +431,7 @@ flowchart TD
 
 ---
 
-## 五、层 3：调度层（`agent.py`）
+## 五、层 3：调度层（`app/services/rag_service.py`）
 
 **读图说明**：每个节点前缀 **层号+层名**（如 `②网关层`、`③调度层`）；`↳` 表示该步调用的下层 **⑤工具层 / ⑥基础设施** 及 **详图编号**。
 
@@ -490,7 +485,7 @@ flowchart TD
 
 
 
-### 5.2 会话存储（`storage/conversations.py`）
+### 5.2 会话存储（`app/infrastructure/persistence/conversations.py`）
 
 生产形态：**客户端只传 `conversation_id` + `message`**，`chat_history` 由服务端从 PostgreSQL（无则 SQLite 降级）加载与落库。`conversation_id` 同时作为 LangGraph `thread_id`（HITL 对齐）。
 
@@ -728,7 +723,7 @@ flowchart LR
 
 </details>
 
-**RAGState 字段分组（`graph/state.py`）：**
+**RAGState 字段分组（`app/agent/graph/state.py`）：**
 
 | 分组 | 字段 | 说明 |
 |------|------|------|
@@ -768,7 +763,7 @@ flowchart TD
 
 ## 七、层 5：工具层（Tools）
 
-### 7.1 检索全流程（`tools/retriever.py`）
+### 7.1 检索全流程（`app/retrieval/retriever.py`）
 
 ![检索全流程](./diagrams/14_retrieval.png)
 
@@ -806,7 +801,7 @@ flowchart TD
 
 </details>
 
-### 7.2 入库全流程（`tools/ingest.py`）
+### 7.2 入库全流程（`app/retrieval/ingest.py`）
 
 ![入库全流程](./diagrams/15_ingest.png)
 
@@ -839,7 +834,7 @@ flowchart TD
 
 </details>
 
-### 7.3 冲突检测（`tools/conflict.py`）
+### 7.3 冲突检测（`app/retrieval/conflict.py`）
 
 ![冲突检测](./diagrams/16_conflict.png)
 
@@ -860,7 +855,7 @@ flowchart TD
 
 </details>
 
-### 7.4 知识图谱（`tools/knowledge_graph.py` + `kg_extractor.py`）
+### 7.4 知识图谱（`app/retrieval/knowledge_graph.py` + `kg_extractor.py`）
 
 ![知识图谱](./diagrams/17_knowledge_graph.png)
 
@@ -911,7 +906,7 @@ flowchart TD
 
 </details>
 
-### 8.2 超时控制（`core/timeouts.py`）
+### 8.2 超时控制（`app/core/timeouts.py`）
 
 ![超时控制](./diagrams/19_timeouts.png)
 
@@ -927,7 +922,7 @@ flowchart LR
 
 </details>
 
-### 8.3 上下文压缩（`core/compression.py`）
+### 8.3 上下文压缩（`app/core/compression.py`）
 
 ![上下文压缩](./diagrams/20_compression.png)
 
@@ -977,7 +972,7 @@ flowchart TB
 | redis | 6379 | Cache + rate limit |
 | postgres | 5432 | conversations + messages + HITL checkpoint |
 
-### 8.5 会话存储（`storage/conversations.py`）
+### 8.5 会话存储（`app/infrastructure/persistence/conversations.py`）
 
 ![会话存储](./diagrams/22_conversations.png)
 
@@ -991,13 +986,13 @@ flowchart TD
         C2[每次 POST message]
     end
 
-    subgraph API["② api.py"]
+    subgraph API["② main.py / app/api"]
         A1[POST /conversations 创建]
         A2[GET /conversations/id/messages]
         A3[POST /conversations/id/chat]
     end
 
-    subgraph Store["storage/conversations.py"]
+    subgraph Store["app/infrastructure/persistence/conversations.py"]
         S1[(conversations 表)]
         S2[(messages 表<br/>role + content 明文)]
     end
@@ -1064,6 +1059,7 @@ python eval/harness/run_eval.py --project 00 --prompt v2 --regression
 
 | 能力 | project_01 | project_00 |
 |------|-----------|------------|
+| 目录结构 | 扁平 `api/agent/tools/...` | `app/` 分层（api / services / agent / retrieval / gateway / infrastructure / core） |
 | Provider | 仅 Ollama | Ollama / OpenAI 可切换 |
 | 鉴权 | 无 | JWT + RBAC |
 | 缓存/限流 | 无 | Redis 答案缓存 + 限流（history 不在 Redis） |
@@ -1079,4 +1075,4 @@ python eval/harness/run_eval.py --project 00 --prompt v2 --regression
 
 ## 十二、一句话串起来（面试可背）
 
-> **Client** 持 `conversation_id` 调 **API**（JWT + 限流）→ **DB 加载 chat_history** → **agent** 压缩历史 + 查**答案**缓存 → **LangGraph**（guard → 可选 HITL → rewrite → hybrid 检索 + ACL + KG → generate → grade）→ **落库 user/assistant 消息** → 返回答案；**ingest** 写 Chroma + BM25 + KG；**Redis** 只缓存答案与限流，不存聊天记录。
+> **Client** 持 `conversation_id` 调 **main.py / app/api**（JWT + 限流）→ **DB 加载 chat_history** → **rag_service** 压缩历史 + 查**答案**缓存 → **LangGraph**（guard → 可选 HITL → rewrite → hybrid 检索 + ACL + KG → generate → grade）→ **落库 user/assistant 消息** → 返回答案；**ingest** 写 Chroma + BM25 + KG；**Redis** 只缓存答案与限流，不存聊天记录。入口：`uvicorn main:app`，UI：`streamlit run app_ui.py`。

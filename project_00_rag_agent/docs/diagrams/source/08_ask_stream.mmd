@@ -1,14 +1,14 @@
 flowchart TD
     START(["②网关层 conversation_chat_stream<br/>详图 04"]) --> RID["②网关层 new_request_id + metrics"]
-    RID --> UMSG["②网关层 append_message(user)<br/>详图 22 · ⑥PG"]
+    RID --> LOAD["②网关层 读 history<br/>详图 22 · ⑥PG"]
+    LOAD --> UMSG["②网关层 append_message(user)<br/>详图 22 · ⑥PG"]
     UMSG --> RESP["②网关层 return StreamingResponse(_gen)<br/>HTTP 连接打开"]
 
-    RESP --> A2{"③调度层 cache_get<br/>详图 06 · ⑥Redis"}
+    RESP --> A1["③调度层 compress<br/>详图 20"]
+    A1 --> A2{"③调度层 cache_get<br/>详图 06 · ⑥Redis"}
 
     A2 -->|命中| A2H["③调度层 yield 分片 + __META__"]
-    A2 -->|未命中| LOAD["②网关层 读 history<br/>详图 22 · ⑥PG"]
-    LOAD --> A1["③调度层 compress<br/>详图 20"]
-    A1 --> A3["③调度层 astream → ④执行层<br/>详图 11<br/>↳ ⑤14/16/17 · ⑥18/19/20"]
+    A2 -->|未命中| A3["③调度层 astream → ④执行层<br/>详图 11 · ④ HITL 判定<br/>↳ ⑤14/16/17 · ⑥18/19/20"]
 
     A2H --> LOOP
     A3 --> LOOP
@@ -18,7 +18,7 @@ flowchart TD
         LOOP --> KIND{token 类型?}
 
         KIND -->|普通 token| TOK["② full_answer += token<br/>yield data:token → 前端"]
-        KIND -->|__META__| META["② meta = JSON<br/>yield data:meta → 前端<br/>（透传执行层字段，见详图 11/13）"]
+        KIND -->|__META__| META["② meta = JSON<br/>yield data:meta → 前端"]
 
         TOK --> MORE{还有 token?}
         META --> MORE
@@ -39,4 +39,6 @@ flowchart TD
     A6 --> A7
     A7 -.->|进入 _gen 循环| KIND
 
-    %% HITL 判定/interrupt 在 ④执行层（详图 11/13）；hitl_pending 仅经 __META__ 带给前端；续跑见详图 09（独立 HTTP，不在本图展开）
+    META -.->|hitl_pending=true| H09["admin POST /hitl/resume · 详图 09"]
+
+    %% 与 07 对齐：compress·20 → cache·06 → 执行；虚线=未命中路径 astream 结束后 cache_set→__META__

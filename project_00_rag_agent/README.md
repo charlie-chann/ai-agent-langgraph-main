@@ -34,7 +34,7 @@ ollama pull nomic-embed-text
 bash scripts/start_local.sh
 
 # 5. 另开终端启动 UI（需先登录，默认 admin/admin123）
-streamlit run app.py --server.port 8501
+streamlit run app_ui.py --server.port 8501
 ```
 
 **访问：**
@@ -79,16 +79,22 @@ python eval/harness/run_eval.py --project 00 --prompt v2 --regression
 
 ```
 project_00_rag_agent/
-├── agent.py / api.py / app.py
-├── core/           # compression, timeouts, circuit breaker
-├── providers/      # Ollama / OpenAI
-├── middleware/     # JWT, cache, rate limit
-├── graph/          # LangGraph + checkpointer
-├── tools/          # retriever, ingest, KG, kg_extractor
-├── observability/
-├── docs/architecture.md
+├── main.py              # ASGI 入口 (uvicorn main:app)
+├── app_ui.py            # Streamlit UI
+├── config.py            # 全局配置
+├── agent.py / tools/    # 旧导入兼容 shim（eval 等）
+├── app/
+│   ├── api/             # 路由、deps、errors
+│   ├── schemas/         # Pydantic DTO
+│   ├── services/        # rag_service / warmup
+│   ├── agent/           # LangGraph + prompts
+│   ├── retrieval/       # ingest / retriever / KG
+│   ├── gateway/         # JWT / 限流 / request_id
+│   ├── infrastructure/  # DB / Redis cache / providers / metrics
+│   └── core/            # 超时、熔断、压缩、SSE
+├── docs/ 、scripts/ 、tests/ 、sample_docs/
 ├── Dockerfile + docker-compose.yml
-└── tests/
+└── requirements.txt
 ```
 
 See [docs/architecture.md](docs/architecture.md) for HITL, KG, and Docker details.

@@ -1,9 +1,12 @@
 # 架构流程图 PNG
 
-本目录包含 `architecture.md` 中全部 **22 张**流程图的 PNG 导出。
+本目录包含 `architecture.md` 中全部 **23 张**流程图的 PNG 导出（含 `00` 总览与 `01`–`22`）。
+
+> 代码目录已迁至 `app/` 分层（`main.py` + `app/api` / `services` / `agent` / `retrieval` / `gateway` / `infrastructure` / `core`）。图中模块名与 `architecture.md`、`source/*.mmd` 已对齐。
 
 | 文件 | 说明 |
 |------|------|
+| `00_project_end_to_end.png` | 全项目端到端总览 |
 | `01_layers_overview.png` | 六层架构总览 |
 | `02_streamlit_ui.png` | Streamlit UI 全栈路径（经网关） |
 | `03_eval_harness.png` | Eval Harness |
@@ -31,10 +34,10 @@
 
 ```bash
 # 1. 编辑 docs/diagrams/source/*.mmd 或 architecture.md 内折叠的 Mermaid 源码
-# 2. 从 architecture.md 提取并渲染（需 Node.js + npx）
+# 2. 从 architecture.md 提取并渲染（需 Node.js + npx，或可用 Kroki 网络）
 python scripts/render_diagrams.py
 
-# 3. 刷新 architecture.md 中的图片引用
+# 3. 刷新 architecture.md 中的图片引用（若脚本需要）
 python scripts/update_architecture_images.py
 ```
 

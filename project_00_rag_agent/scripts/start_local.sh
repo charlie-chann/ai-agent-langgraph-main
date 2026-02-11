@@ -22,8 +22,8 @@ fi
 echo "==> 4. 入库样例文档（若 chroma 为空）"
 python - <<'PY'
 from pathlib import Path
-from tools.retriever import get_vectorstore
-from tools.ingest import ingest_files
+from app.retrieval.retriever import get_vectorstore
+from app.retrieval.ingest import ingest_files
 
 try:
     n = get_vectorstore()._collection.count()
@@ -41,5 +41,5 @@ else:
 PY
 
 echo "==> 5. 启动 API :8000"
-echo "    另开终端运行 UI: streamlit run app.py --server.port 8501"
-exec uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+echo "    另开终端运行 UI: streamlit run app_ui.py --server.port 8501"
+exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload
