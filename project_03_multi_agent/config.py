@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # ── 多 Agent 协作参数 ──────────────────────────────────────────────────────
     max_revision_loops: int = Field(default=2, alias="MAX_REVISION_LOOPS")
     critic_pass_score: int = Field(default=7, alias="CRITIC_PASS_SCORE")
+    max_supervisor_turns: int = Field(default=20, alias="MAX_SUPERVISOR_TURNS")
+    max_react_iterations: int = Field(default=8, alias="MAX_REACT_ITERATIONS")
 
     # ── 网络搜索 ──────────────────────────────────────────────────────────────
     max_search_results: int = Field(default=5, alias="MAX_SEARCH_RESULTS")
@@ -62,6 +64,8 @@ TEMPERATURE = settings.temperature
 CREATIVE_TEMPERATURE = settings.creative_temperature
 MAX_REVISION_LOOPS = settings.max_revision_loops
 CRITIC_PASS_SCORE = settings.critic_pass_score
+MAX_SUPERVISOR_TURNS = settings.max_supervisor_turns
+MAX_REACT_ITERATIONS = settings.max_react_iterations
 MAX_SEARCH_RESULTS = settings.max_search_results
 LANGSMITH_ENABLED = settings.langsmith_api_key != ""
 

@@ -14,13 +14,13 @@ from __future__ import annotations
 import time
 from typing import List, Generator
 
-from langchain_community.chat_models import ChatOllama
-from langchain.agents import AgentExecutor, create_react_agent
+from langchain_ollama import ChatOllama
+from langchain_classic.agents import AgentExecutor, create_react_agent
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from loguru import logger
 
 from config import OLLAMA_BASE_URL, DEFAULT_MODEL, TEMPERATURE, MAX_HISTORY_MESSAGES
-from prompts.bot_prompts import bot_prompt
+from prompts.bot_prompts import build_bot_prompt
 from tools.ticket_tool import create_ticket, list_tickets, close_ticket
 from tools.kb_tool import search_kb
 from tools.notification_tool import send_notification, get_notifications
@@ -73,6 +73,19 @@ def clear_history(username: str) -> None:
     _MEMORY.pop(username, None)
 
 
+def _build_input_with_history(username: str, message: str) -> str:
+    """将最近对话历史拼入当前输入，供 ReAct Agent 感知上下文。"""
+    history = get_history(username)
+    if not history:
+        return message
+
+    lines = []
+    for msg in history[-6:]:
+        role = "User" if isinstance(msg, HumanMessage) else "Assistant"
+        lines.append(f"{role}: {msg.content}")
+    return "【Chat history】\n" + "\n".join(lines) + f"\n\n【Current question】\n{message}"
+
+
 def _get_user_tools(username: str) -> list:
     """
     根据 RBAC 权限过滤当前用户可用的 LangChain 工具列表。
@@ -115,14 +128,13 @@ def chat(username: str, message: str) -> dict:
     t0 = time.perf_counter()
     role = get_user_role(username)
     user_tools = _get_user_tools(username)
-    history = get_history(username)
 
     llm = _llm()
     # 创建 ReAct 风格 Agent：Thought → Action → Observation 循环
     agent = create_react_agent(
         llm=llm,
         tools=user_tools,
-        prompt=bot_prompt,
+        prompt=build_bot_prompt(),
     )
     executor = AgentExecutor(
         agent=agent,
@@ -135,11 +147,10 @@ def chat(username: str, message: str) -> dict:
 
     try:
         result = executor.invoke({
-            "input": message,
+            "input": _build_input_with_history(username, message),
             "username": username,
             "role": role,
             "allowed_actions": ", ".join(get_allowed_tools(username)),
-            "chat_history": history,
         })
         answer = result.get("output", "")
         # 提取中间步骤供 UI/API 展示工具调用链路

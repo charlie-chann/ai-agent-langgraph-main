@@ -89,10 +89,12 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### 🤖 Agent Pipeline")
-    pipeline = ["🗺️ Planner", "🔍 Researcher", "✍️ Writer", "🎯 Critic", "📋 Summarizer"]
+    pipeline = ["🎛️ Supervisor", "🗺️ Planner", "🔍 Researcher", "✍️ Writer", "🎯 Critic", "📋 Summarizer"]
     for step in pipeline:
         st.markdown(f"  {step}")
-    st.caption(f"Max revisions: {MAX_REVISION_LOOPS}  ·  Pass score: {CRITIC_PASS_SCORE}/10")
+    st.caption(
+        f"Supervisor dynamically delegates · Max revisions: {MAX_REVISION_LOOPS}  ·  Pass score: {CRITIC_PASS_SCORE}/10"
+    )
 
     if st.button("🗑️ Clear history"):
         st.session_state.history = []
@@ -101,6 +103,7 @@ with st.sidebar:
 # ── 主区域 ─────────────────────────────────────────────────────────────────────
 st.markdown("# 🤝 Multi-Agent Collaboration System")
 st.caption(
+    f"Supervisor + ReAct sub-agents  ·  "
     f"**{'Market Research' if scenario == SCENARIO_MARKET_RESEARCH else 'Social Media'}** scenario  ·  "
     f"{model} @ {OLLAMA_BASE_URL}"
 )

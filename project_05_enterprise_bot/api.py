@@ -54,20 +54,6 @@ async def chat_stream(req: ChatRequest):
 
     注意：底层仍调用完整 chat()，非真正的 LLM token 级流式。
     """
-    from langchain_community.chat_models import ChatOllama
-    from langchain.agents import AgentExecutor, create_react_agent
-    from config import OLLAMA_BASE_URL, DEFAULT_MODEL, TEMPERATURE
-    from prompts.bot_prompts import bot_prompt
-    from tools.rbac import get_allowed_tools
-
-    user_tools_names = get_allowed_tools(req.username)
-    from agent import ALL_TOOLS
-    user_tools = [t for t in ALL_TOOLS if t.name in user_tools_names]
-    role = get_user_role(req.username)
-    history = get_history(req.username)
-
-    tokens: list[str] = []
-
     def _gen():
         """SSE 事件生成器：先逐词推送 answer，再推送 done 元数据。"""
         result = chat(req.username, req.message)

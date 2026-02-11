@@ -1,41 +1,46 @@
 """
-agent.py — 多 Agent 协作系统 (LangGraph) v2.0
+agent.py — 真·多智能体协作系统 (LangGraph Supervisor + ReAct Sub-Agents) v3.0
 
 【职责】
-1. 定义 MultiAgentState 共享状态，承载 Planner → Researcher → Writer → Critic → Summarizer 流水线数据
-2. 实现各 Agent 节点函数与 Critic 后的条件路由（通过则 Summarizer，否则回 Writer 修订）
-3. 编译 LangGraph 状态图，对外提供 run / run_stream 同步与流式 API
+1. Supervisor LLM 动态派活，决定下一步由哪个子 Agent 执行
+2. 五个子 Agent 均为独立 ReAct Agent（Researcher 自带搜索工具，可自主决定搜什么）
+3. 通过 messages 通道传递 Agent 间协作上下文，同时保留 plan/research/content 等字段供 UI 展示
 
 【设计原因】
-1. LangGraph StateGraph：显式 DAG + 条件边，比手写循环更易扩展节点与观测
-2. Critic 修订环路上限 MAX_REVISION_LOOPS：防止低分内容无限重写，控制延迟与成本
-3. LLM 分 creative / 非 creative 两档温度：规划/评审偏确定性，写作偏创意
-4. JSON 解析 fallback（正则提取 + 默认 plan/critique）：小模型输出不规范时不致崩溃
-5. 图单例 get_graph()：避免重复 compile；agent_log 记录每步耗时供 UI 时间线展示
+1. Supervisor + Worker 模式：接近业界 Multi-Agent 编排，而非固定流水线
+2. 各角色 langchain.agents.create_agent：Researcher 可自主多次搜索，而非代码写死 multi_search
+3. 规则兜底 _rule_based_next：小模型 Supervisor 输出异常时仍可完成流水线
+4. agent_log 仅记录 Worker 节点：UI 进度条与 v2 保持一致
 """
 from __future__ import annotations
 
 import json
+import re
 import time
-from typing import TypedDict, Annotated, Optional, Generator
+from typing import TypedDict, Annotated, Generator
 
 from langchain_ollama import ChatOllama
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langchain.agents import create_agent
 from loguru import logger
 
 from config import (
-    settings,
     OLLAMA_BASE_URL, DEFAULT_MODEL, TEMPERATURE, CREATIVE_TEMPERATURE,
-    MAX_REVISION_LOOPS, CRITIC_PASS_SCORE,
+    MAX_REVISION_LOOPS, CRITIC_PASS_SCORE, MAX_SUPERVISOR_TURNS, MAX_REACT_ITERATIONS,
     SCENARIO_MARKET_RESEARCH, SCENARIO_SOCIAL_MEDIA,
 )
 from prompts.agent_prompts import (
-    PLANNER_PROMPT, RESEARCHER_PROMPT,
-    WRITER_MARKET_PROMPT, WRITER_SOCIAL_PROMPT,
-    CRITIC_PROMPT, SUMMARIZER_PROMPT,
+    SUPERVISOR_PROMPT,
+    PLANNER_REACT_SYSTEM, RESEARCHER_REACT_SYSTEM,
+    WRITER_MARKET_REACT_SYSTEM, WRITER_SOCIAL_REACT_SYSTEM,
+    CRITIC_REACT_SYSTEM, SUMMARIZER_REACT_SYSTEM,
 )
-from tools.search_tool import multi_search
+from tools.search_tool import RESEARCHER_TOOLS
+
+WORKER_AGENTS = ("planner", "researcher", "writer", "critic", "summarizer")
+VALID_NEXT = set(WORKER_AGENTS) | {"FINISH"}
 
 
 # ── 共享状态 ───────────────────────────────────────────────────────────────────
@@ -44,21 +49,24 @@ class MultiAgentState(TypedDict):
     LangGraph 各节点读写的全局状态字典。
 
     字段说明:
-        task: 用户原始任务描述
-        scenario: 业务场景（market_research / social_media）
-        plan: Planner 输出的 JSON 计划
-        search_results: multi_search 原始检索文本
-        research: Researcher 综合后的 Markdown 研究结论
-        content: Writer 产出的正文
-        critique: Critic 输出的 JSON 评分与修订建议
-        summary: Summarizer 生成的执行摘要
-        revision_count: Critic 已执行次数（含首次评估）
-        agent_log: 每步 agent 名、输出预览、耗时(ms)
-        final_output: 正文 + 分隔线 + Executive Summary 的完整交付物
-        total_latency_ms: 整链端到端耗时（由 run/run_stream 填充）
+        task / scenario: 用户输入与业务场景
+        messages: Agent 间协作消息通道（add_messages 自动合并）
+        next_agent: Supervisor 决定的下一步 Worker 或 FINISH
+        last_agent: 上一个完成的 Worker，供 Supervisor 判断是否需要 Critic
+        supervisor_turns: Supervisor 已执行次数，防止无限循环
+        plan / research / content / critique / summary: 各 Worker 结构化产出（UI 展示）
+        search_results: Researcher 最终检索摘要（从 messages 或工具输出提取）
+        revision_count: Critic 已执行次数
+        agent_log: Worker 步骤日志
+        final_output: 完整交付物
+        total_latency_ms: 端到端耗时
     """
     task: str
     scenario: str
+    messages: Annotated[list[BaseMessage], add_messages]
+    next_agent: str
+    last_agent: str
+    supervisor_turns: int
     plan: dict
     search_results: str
     research: str
@@ -71,16 +79,9 @@ class MultiAgentState(TypedDict):
     total_latency_ms: float
 
 
+# ── LLM 与子 Agent 工厂 ─────────────────────────────────────────────────────────
 def _llm(creative: bool = False) -> ChatOllama:
-    """
-    创建 Ollama Chat 模型实例。
-
-    参数:
-        creative: True 时使用 CREATIVE_TEMPERATURE（写作节点）；否则 TEMPERATURE（规划/评审）
-
-    返回:
-        配置好 base_url、model、temperature 的 ChatOllama 实例
-    """
+    """创建 Ollama Chat 模型实例。"""
     return ChatOllama(
         model=DEFAULT_MODEL,
         base_url=OLLAMA_BASE_URL,
@@ -88,16 +89,82 @@ def _llm(creative: bool = False) -> ChatOllama:
     )
 
 
-def _log_step(state: MultiAgentState, agent: str, output: str, t0: float) -> None:
-    """
-    向 state["agent_log"] 追加一步执行记录。
+_sub_agents: dict[str, object] = {}
 
-    参数:
-        state: 当前图状态
-        agent: 节点名称（planner / researcher / ...）
-        output: 该步主要输出（截断前 300 字符作为 preview）
-        t0: perf_counter 起始时间，用于计算 time_ms
-    """
+
+def _get_sub_agent(name: str, scenario: str = SCENARIO_MARKET_RESEARCH):
+    """懒加载各角色 ReAct 子 Agent 单例。"""
+    key = f"{name}:{scenario}" if name == "writer" else name
+    if key in _sub_agents:
+        return _sub_agents[key]
+
+    if name == "planner":
+        agent = create_agent(_llm(), tools=[], system_prompt=PLANNER_REACT_SYSTEM)
+    elif name == "researcher":
+        agent = create_agent(
+            _llm(), tools=RESEARCHER_TOOLS, system_prompt=RESEARCHER_REACT_SYSTEM,
+        )
+    elif name == "writer":
+        sys_prompt = (
+            WRITER_SOCIAL_REACT_SYSTEM if scenario == SCENARIO_SOCIAL_MEDIA
+            else WRITER_MARKET_REACT_SYSTEM
+        )
+        agent = create_agent(_llm(creative=True), tools=[], system_prompt=sys_prompt)
+    elif name == "critic":
+        agent = create_agent(_llm(), tools=[], system_prompt=CRITIC_REACT_SYSTEM)
+    elif name == "summarizer":
+        agent = create_agent(_llm(), tools=[], system_prompt=SUMMARIZER_REACT_SYSTEM)
+    else:
+        raise ValueError(f"Unknown sub-agent: {name}")
+
+    _sub_agents[key] = agent
+    return agent
+
+
+def reset_agents() -> None:
+    """清空子 Agent 缓存（测试或切换模型后调用）。"""
+    global _sub_agents, _graph
+    _sub_agents = {}
+    _graph = None
+
+
+# ── 工具函数 ───────────────────────────────────────────────────────────────────
+def _parse_json(text: str, fallback: dict | None = None) -> dict:
+    """从 LLM 输出解析 JSON 对象，容错处理 markdown 包裹等情况。"""
+    fallback = fallback or {}
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+    return fallback
+
+
+def _last_ai_content(messages: list[BaseMessage]) -> str:
+    """取 messages 中最后一条 AI 回复的文本内容。"""
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and msg.content:
+            return msg.content if isinstance(msg.content, str) else str(msg.content)
+    return ""
+
+
+def _format_recent_messages(messages: list[BaseMessage], limit: int = 8) -> str:
+    """格式化最近几条消息供 Supervisor 阅读。"""
+    lines = []
+    for msg in messages[-limit:]:
+        role = getattr(msg, "name", None) or msg.__class__.__name__.replace("Message", "")
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
+        lines.append(f"[{role}]: {content[:400]}")
+    return "\n".join(lines) if lines else "(no messages yet)"
+
+
+def _log_step(state: MultiAgentState, agent: str, output: str, t0: float) -> None:
+    """向 agent_log 追加 Worker 执行记录。"""
     state["agent_log"].append({
         "agent": agent,
         "output_preview": output[:300],
@@ -105,231 +172,304 @@ def _log_step(state: MultiAgentState, agent: str, output: str, t0: float) -> Non
     })
 
 
-# ── Agent 节点 ─────────────────────────────────────────────────────────────────
+def _invoke_sub_agent(name: str, state: MultiAgentState, user_content: str) -> str:
+    """调用指定 ReAct 子 Agent，返回最终文本输出。"""
+    agent = _get_sub_agent(name, state["scenario"])
+    prior = list(state.get("messages", []))
+    result = agent.invoke(
+        {"messages": prior + [HumanMessage(content=user_content)]},
+        config={"recursion_limit": MAX_REACT_ITERATIONS},
+    )
+    return _last_ai_content(result.get("messages", []))
+
+
+def _extract_tool_outputs(messages: list[BaseMessage]) -> str:
+    """从 ReAct 消息历史中提取工具返回的搜索摘要。"""
+    parts = []
+    for msg in messages:
+        if msg.__class__.__name__ == "ToolMessage":
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            parts.append(content[:500])
+    return "\n\n".join(parts)
+
+
+# ── 规则兜底路由（Supervisor LLM 失败时使用）──────────────────────────────────
+def _rule_based_next(state: MultiAgentState) -> str:
+    """确定性路由：保证小模型或 Supervisor 异常时流水线仍可推进。"""
+    if not state.get("plan"):
+        return "planner"
+    if not state.get("research"):
+        return "researcher"
+    if not state.get("content"):
+        return "writer"
+
+    last = state.get("last_agent", "")
+    critique = state.get("critique") or {}
+    revision_count = state.get("revision_count", 0)
+
+    if last == "writer":
+        return "critic"
+
+    if last == "critic":
+        score = critique.get("overall_score", 10)
+        verdict = critique.get("verdict", "pass")
+        if verdict == "revise" and score < CRITIC_PASS_SCORE and revision_count < MAX_REVISION_LOOPS:
+            return "writer"
+        if not state.get("summary"):
+            return "summarizer"
+        return "FINISH"
+
+    if last == "summarizer" or state.get("summary"):
+        return "FINISH"
+
+    if not critique:
+        return "critic"
+    if not state.get("summary"):
+        return "summarizer"
+    return "FINISH"
+
+
+def _validate_next(state: MultiAgentState, proposed: str) -> str:
+    """校验 Supervisor 决策，不合法则回退到规则路由。"""
+    if proposed not in VALID_NEXT:
+        return _rule_based_next(state)
+    if proposed == "researcher" and not state.get("plan"):
+        return "planner"
+    if proposed == "writer" and not state.get("research"):
+        return "researcher"
+    if proposed == "critic" and not state.get("content"):
+        return "writer"
+    if proposed == "summarizer" and not state.get("content"):
+        return "writer"
+    return proposed
+
+
+# ── Supervisor 节点 ────────────────────────────────────────────────────────────
+def node_supervisor(state: MultiAgentState) -> MultiAgentState:
+    """
+    Supervisor 节点：LLM 动态决定 next_agent，规则兜底 + 最大轮次保护。
+    """
+    turns = state.get("supervisor_turns", 0) + 1
+    state["supervisor_turns"] = turns
+
+    if turns > MAX_SUPERVISOR_TURNS:
+        logger.warning("[Supervisor] Max turns reached → FINISH")
+        state["next_agent"] = "FINISH"
+        return state
+
+    # 首次进入：直接派 Planner，减少一次 LLM 调用
+    if turns == 1 and not state.get("plan"):
+        state["next_agent"] = "planner"
+        logger.info("[Supervisor] Initial → planner")
+        return state
+
+    chain = SUPERVISOR_PROMPT | _llm()
+    result = chain.invoke({
+        "task": state["task"],
+        "scenario": state["scenario"],
+        "has_plan": bool(state.get("plan")),
+        "has_research": bool(state.get("research")),
+        "has_content": bool(state.get("content")),
+        "has_critique": bool(state.get("critique")),
+        "has_summary": bool(state.get("summary")),
+        "revision_count": state.get("revision_count", 0),
+        "max_revisions": MAX_REVISION_LOOPS,
+        "last_agent": state.get("last_agent", "none"),
+        "recent_messages": _format_recent_messages(state.get("messages", [])),
+    })
+
+    decision = _parse_json(result.content, {"next": _rule_based_next(state)})
+    proposed = decision.get("next", decision.get("agent", "")).lower().strip()
+    next_agent = _validate_next(state, proposed if proposed in VALID_NEXT else _rule_based_next(state))
+
+    logger.info(f"[Supervisor] → {next_agent} ({decision.get('reason', 'rule/fallback')})")
+    state["next_agent"] = next_agent
+    return state
+
+
+def _route_from_supervisor(state: MultiAgentState) -> str:
+    """Supervisor 条件边：映射 next_agent 到图节点名或 END。"""
+    nxt = state.get("next_agent", "FINISH")
+    if nxt == "FINISH":
+        return END
+    return nxt
+
+
+# ── Worker 节点（各为独立 ReAct 子 Agent）──────────────────────────────────────
 def node_planner(state: MultiAgentState) -> MultiAgentState:
-    """
-    Planner 节点：将用户任务拆解为结构化 JSON 计划。
-
-    流程:
-        1. PLANNER_PROMPT | LLM 调用
-        2. 解析 JSON；失败则用正则提取或 fallback 默认 plan
-        3. 写入 state["plan"] 并记录 agent_log
-    """
+    """Planner ReAct 子 Agent：拆解任务为 JSON 计划。"""
     t0 = time.perf_counter()
-    logger.info("[Planner] Planning task...")
-    chain = PLANNER_PROMPT | _llm()
-    result = chain.invoke({"task": state["task"], "scenario": state["scenario"]})
+    logger.info("[Planner] ReAct sub-agent running...")
 
-    try:
-        plan = json.loads(result.content)
-    except json.JSONDecodeError:
-        # 小模型常在 JSON 外包裹说明文字，用正则兜底提取 {...}
-        import re
-        match = re.search(r'\{.*\}', result.content, re.DOTALL)
-        plan = json.loads(match.group()) if match else {
-            "goal": state["task"],
-            "research_questions": [state["task"]],
-            "content_sections": ["Overview", "Analysis", "Conclusion"],
-            "tone": "professional",
-            "target_audience": "general",
-        }
+    user_msg = f"Task: {state['task']}\nScenario: {state['scenario']}"
+    output = _invoke_sub_agent("planner", state, user_msg)
 
+    plan = _parse_json(output, {
+        "goal": state["task"],
+        "research_questions": [state["task"]],
+        "content_sections": ["Overview", "Analysis", "Conclusion"],
+        "tone": "professional",
+        "target_audience": "general",
+    })
     state["plan"] = plan
-    _log_step(state, "Planner", json.dumps(plan)[:300], t0)
+    state["last_agent"] = "planner"
+    state["messages"] = [AIMessage(content=output, name="Planner")]
+    _log_step(state, "planner", json.dumps(plan, ensure_ascii=False), t0)
     return state
 
 
 def node_researcher(state: MultiAgentState) -> MultiAgentState:
-    """
-    Researcher 节点：按计划中的 research_questions 搜索并 synthesize 研究结论。
-
-    流程:
-        1. multi_search 批量检索 → search_results
-        2. RESEARCHER_PROMPT | LLM 综合为 Markdown → research
-    """
+    """Researcher ReAct 子 Agent：自主调用搜索工具并综合研究结论。"""
     t0 = time.perf_counter()
-    logger.info("[Researcher] Searching...")
-    questions = state["plan"].get("research_questions", [state["task"]])
-    raw_results = multi_search(questions)
-    state["search_results"] = raw_results
+    logger.info("[Researcher] ReAct sub-agent running...")
 
-    chain = RESEARCHER_PROMPT | _llm()
-    result = chain.invoke({
-        "research_questions": "\n".join(f"- {q}" for q in questions),
-        "search_results": raw_results,
-    })
-    state["research"] = result.content
-    _log_step(state, "Researcher", result.content, t0)
+    plan = state.get("plan", {})
+    questions = plan.get("research_questions", [state["task"]])
+    user_msg = (
+        f"Task: {state['task']}\n"
+        f"Plan goal: {plan.get('goal', state['task'])}\n"
+        f"Research questions:\n" + "\n".join(f"- {q}" for q in questions) + "\n\n"
+        "Use your search tools to gather information, then synthesize findings in markdown."
+    )
+
+    agent = _get_sub_agent("researcher", state["scenario"])
+    prior = list(state.get("messages", []))
+    result = agent.invoke(
+        {"messages": prior + [HumanMessage(content=user_msg)]},
+        config={"recursion_limit": MAX_REACT_ITERATIONS},
+    )
+    result_messages = result.get("messages", [])
+    output = _last_ai_content(result_messages)
+    tool_output = _extract_tool_outputs(result_messages)
+
+    state["research"] = output
+    state["search_results"] = tool_output or output[:2000]
+    state["last_agent"] = "researcher"
+    state["messages"] = [AIMessage(content=output, name="Researcher")]
+    _log_step(state, "researcher", output, t0)
     return state
 
 
 def node_writer(state: MultiAgentState) -> MultiAgentState:
-    """
-    Writer 节点：根据 scenario 选择市场调研或社媒 Prompt 生成正文。
-
-    流程:
-        1. social_media → WRITER_SOCIAL_PROMPT；否则 WRITER_MARKET_PROMPT
-        2. creative=True 提升文案多样性
-        3. 修订环中 Critic 打回后会再次进入此节点重写 content
-    """
+    """Writer ReAct 子 Agent：根据 plan + research 撰写正文，可吸收 Critic 反馈修订。"""
     t0 = time.perf_counter()
-    logger.info("[Writer] Writing content...")
-    plan = state["plan"]
+    logger.info("[Writer] ReAct sub-agent running...")
 
-    if state["scenario"] == SCENARIO_SOCIAL_MEDIA:
-        chain = WRITER_SOCIAL_PROMPT | _llm(creative=True)
-    else:
-        chain = WRITER_MARKET_PROMPT | _llm(creative=True)
+    plan = state.get("plan", {})
+    critique = state.get("critique") or {}
+    improvements = critique.get("improvements", [])
 
-    result = chain.invoke({
-        "plan": json.dumps(plan, ensure_ascii=False),
-        "research": state["research"],
-        "tone": plan.get("tone", "professional"),
-        "target_audience": plan.get("target_audience", "general audience"),
-    })
-    state["content"] = result.content
-    _log_step(state, "Writer", result.content, t0)
+    user_msg = (
+        f"Task: {state['task']}\n"
+        f"Scenario: {state['scenario']}\n"
+        f"Tone: {plan.get('tone', 'professional')}\n"
+        f"Target audience: {plan.get('target_audience', 'general audience')}\n\n"
+        f"Plan:\n{json.dumps(plan, ensure_ascii=False)}\n\n"
+        f"Research findings:\n{state.get('research', '')}\n"
+    )
+    if improvements:
+        user_msg += f"\nCritic revision feedback (must address):\n" + "\n".join(f"- {i}" for i in improvements)
+
+    output = _invoke_sub_agent("writer", state, user_msg)
+    state["content"] = output
+    state["last_agent"] = "writer"
+    state["messages"] = [AIMessage(content=output, name="Writer")]
+    _log_step(state, "writer", output, t0)
     return state
 
 
 def node_critic(state: MultiAgentState) -> MultiAgentState:
-    """
-    Critic 节点：对 Writer 产出打分，决定 pass 或 revise。
-
-    流程:
-        1. CRITIC_PROMPT | LLM 输出 JSON critique
-        2. 解析失败时 fallback 默认 pass 结构
-        3. revision_count 自增，供路由与 UI 展示修订次数
-    """
+    """Critic ReAct 子 Agent：评估正文质量，输出 JSON 评分。"""
     t0 = time.perf_counter()
-    logger.info("[Critic] Evaluating content...")
-    chain = CRITIC_PROMPT | _llm()
-    result = chain.invoke({
-        "goal": state["plan"].get("goal", state["task"]),
-        "content": state["content"],
+    logger.info("[Critic] ReAct sub-agent running...")
+
+    plan = state.get("plan", {})
+    user_msg = (
+        f"Goal: {plan.get('goal', state['task'])}\n\n"
+        f"Content to evaluate:\n{state.get('content', '')}"
+    )
+    output = _invoke_sub_agent("critic", state, user_msg)
+
+    critique = _parse_json(output, {
+        "overall_score": 8, "verdict": "pass",
+        "strengths": [], "improvements": [],
+        "scores": {"accuracy": 8, "clarity": 8, "relevance": 8, "actionability": 8},
     })
-
-    try:
-        critique = json.loads(result.content)
-    except json.JSONDecodeError:
-        import re
-        match = re.search(r'\{.*\}', result.content, re.DOTALL)
-        critique = json.loads(match.group()) if match else {
-            "overall_score": 8, "verdict": "pass",
-            "strengths": [], "improvements": [],
-        }
-
     state["critique"] = critique
     state["revision_count"] = state.get("revision_count", 0) + 1
-    _log_step(state, "Critic", json.dumps(critique)[:300], t0)
+    state["last_agent"] = "critic"
+    state["messages"] = [AIMessage(content=output, name="Critic")]
+    _log_step(state, "critic", json.dumps(critique, ensure_ascii=False), t0)
     return state
 
 
 def node_summarizer(state: MultiAgentState) -> MultiAgentState:
-    """
-    Summarizer 节点：生成执行摘要并组装 final_output。
-
-    流程:
-        1. SUMMARIZER_PROMPT | LLM 生成 summary
-        2. final_output = content + 分隔线 + Executive Summary 标题 + summary
-    """
+    """Summarizer ReAct 子 Agent：生成执行摘要并组装 final_output。"""
     t0 = time.perf_counter()
-    logger.info("[Summarizer] Creating summary...")
-    chain = SUMMARIZER_PROMPT | _llm()
-    result = chain.invoke({"content": state["content"]})
-    state["summary"] = result.content
-    state["final_output"] = f"{state['content']}\n\n---\n\n## Executive Summary\n{result.content}"
-    _log_step(state, "Summarizer", result.content, t0)
+    logger.info("[Summarizer] ReAct sub-agent running...")
+
+    user_msg = f"Content:\n{state.get('content', '')}"
+    output = _invoke_sub_agent("summarizer", state, user_msg)
+
+    state["summary"] = output
+    state["final_output"] = f"{state['content']}\n\n---\n\n## Executive Summary\n{output}"
+    state["last_agent"] = "summarizer"
+    state["messages"] = [AIMessage(content=output, name="Summarizer")]
+    _log_step(state, "summarizer", output, t0)
     return state
-
-
-# ── 条件路由 ───────────────────────────────────────────────────────────────────
-def _route_after_critic(state: MultiAgentState) -> str:
-    """
-    Critic 之后的条件边：决定进入 summarizer 或回 writer 修订。
-
-    通过条件（任一满足即 summarizer）:
-        - verdict == "pass"
-        - overall_score >= CRITIC_PASS_SCORE
-        - revision_count >= MAX_REVISION_LOOPS（防止无限循环）
-
-    返回:
-        "summarizer" 或 "writer"（与 add_conditional_edges 映射键一致）
-    """
-    score = state["critique"].get("overall_score", 10)
-    verdict = state["critique"].get("verdict", "pass")
-    if verdict == "pass" or score >= CRITIC_PASS_SCORE or state["revision_count"] >= MAX_REVISION_LOOPS:
-        logger.info(f"[Critic] Score={score} → Summarizer")
-        return "summarizer"
-    logger.info(f"[Critic] Score={score} → revise (loop {state['revision_count']})")
-    return "writer"
 
 
 # ── 构建状态图 ─────────────────────────────────────────────────────────────────
 def build_graph():
     """
-    构建并编译 LangGraph 多 Agent 流水线。
+    Supervisor + ReAct Workers 拓扑:
 
-    拓扑:
-        planner → researcher → writer → critic
-        critic ──(条件)──→ writer（修订）或 summarizer → END
-
-    返回:
-        已 compile 的可 invoke/stream 的图对象
+        supervisor ──(动态)──→ planner | researcher | writer | critic | summarizer | END
+        各 worker ──→ supervisor（汇报后等待下一派活）
     """
     g = StateGraph(MultiAgentState)
+    g.add_node("supervisor", node_supervisor)
     g.add_node("planner", node_planner)
     g.add_node("researcher", node_researcher)
     g.add_node("writer", node_writer)
     g.add_node("critic", node_critic)
     g.add_node("summarizer", node_summarizer)
 
-    g.set_entry_point("planner")
-    g.add_edge("planner", "researcher")
-    g.add_edge("researcher", "writer")
-    g.add_edge("writer", "critic")
-    g.add_conditional_edges("critic", _route_after_critic, {
+    g.set_entry_point("supervisor")
+    g.add_conditional_edges("supervisor", _route_from_supervisor, {
+        "planner": "planner",
+        "researcher": "researcher",
         "writer": "writer",
+        "critic": "critic",
         "summarizer": "summarizer",
+        END: END,
     })
-    g.add_edge("summarizer", END)
+    for worker in WORKER_AGENTS:
+        g.add_edge(worker, "supervisor")
 
     return g.compile()
 
 
-# 进程级图单例，首次 invoke 时 compile
 _graph = None
 
 
 def get_graph():
-    """
-    获取已编译图的懒加载单例。
-
-    返回:
-        compile 后的 StateGraph 实例
-    """
+    """获取已编译图的懒加载单例。"""
     global _graph
     if _graph is None:
         _graph = build_graph()
     return _graph
 
 
-# ── 对外 API ───────────────────────────────────────────────────────────────────
-def run(task: str, scenario: str = SCENARIO_MARKET_RESEARCH) -> dict:
-    """
-    同步执行完整多 Agent 流水线。
-
-    参数:
-        task: 用户任务描述
-        scenario: 业务场景，默认市场调研
-
-    返回:
-        执行完毕的 MultiAgentState 字典（含 total_latency_ms）
-    """
-    t0 = time.perf_counter()
-    initial: MultiAgentState = {
+def _initial_state(task: str, scenario: str) -> MultiAgentState:
+    """构造流水线初始状态。"""
+    return {
         "task": task,
         "scenario": scenario,
+        "messages": [HumanMessage(content=f"Task: {task}\nScenario: {scenario}")],
+        "next_agent": "planner",
+        "last_agent": "",
+        "supervisor_turns": 0,
         "plan": {},
         "search_results": "",
         "research": "",
@@ -341,44 +481,24 @@ def run(task: str, scenario: str = SCENARIO_MARKET_RESEARCH) -> dict:
         "final_output": "",
         "total_latency_ms": 0,
     }
-    result = get_graph().invoke(initial)
+
+
+# ── 对外 API ───────────────────────────────────────────────────────────────────
+def run(task: str, scenario: str = SCENARIO_MARKET_RESEARCH) -> dict:
+    """同步执行 Supervisor + ReAct 多 Agent 流水线。"""
+    t0 = time.perf_counter()
+    result = get_graph().invoke(_initial_state(task, scenario))
     result["total_latency_ms"] = round((time.perf_counter() - t0) * 1000)
     return result
 
 
 def run_stream(task: str, scenario: str = SCENARIO_MARKET_RESEARCH) -> Generator[dict, None, None]:
-    """
-    流式执行流水线，每完成一个节点 yield 进度事件。
-
-    参数:
-        task: 用户任务描述
-        scenario: 业务场景
-
-    Yields:
-        {"type": "node_complete", "agent", "preview", "time_ms"} 各节点完成时
-        {"type": "done", "total_latency_ms"} 全部结束时
-
-    说明:
-        stream_mode="updates" 仅推送有变化的节点状态，便于 UI 逐步更新进度条
-    """
+    """流式执行，每完成一个 Worker 节点 yield 进度事件（跳过 Supervisor）。"""
     t0 = time.perf_counter()
-    initial: MultiAgentState = {
-        "task": task,
-        "scenario": scenario,
-        "plan": {},
-        "search_results": "",
-        "research": "",
-        "content": "",
-        "critique": {},
-        "summary": "",
-        "revision_count": 0,
-        "agent_log": [],
-        "final_output": "",
-        "total_latency_ms": 0,
-    }
-
-    for event in get_graph().stream(initial, stream_mode="updates"):
+    for event in get_graph().stream(_initial_state(task, scenario), stream_mode="updates"):
         for node_name, node_state in event.items():
+            if node_name == "supervisor":
+                continue
             log = node_state.get("agent_log", [])
             last = log[-1] if log else {}
             yield {
@@ -388,5 +508,14 @@ def run_stream(task: str, scenario: str = SCENARIO_MARKET_RESEARCH) -> Generator
                 "time_ms": last.get("time_ms", 0),
             }
 
-    total_ms = round((time.perf_counter() - t0) * 1000)
-    yield {"type": "done", "total_latency_ms": total_ms}
+    yield {"type": "done", "total_latency_ms": round((time.perf_counter() - t0) * 1000)}
+
+
+# ── 兼容旧测试的辅助函数 ───────────────────────────────────────────────────────
+def _route_after_critic(state: MultiAgentState) -> str:
+    """兼容 v2 测试：根据 critique 判断 writer 修订或 summarizer。"""
+    score = state.get("critique", {}).get("overall_score", 10)
+    verdict = state.get("critique", {}).get("verdict", "pass")
+    if verdict == "pass" or score >= CRITIC_PASS_SCORE or state.get("revision_count", 0) >= MAX_REVISION_LOOPS:
+        return "summarizer"
+    return "writer"

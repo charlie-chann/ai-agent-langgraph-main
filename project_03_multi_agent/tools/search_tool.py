@@ -66,3 +66,25 @@ def multi_search(questions: list[str]) -> str:
         result = web_search(q)
         combined.append(f"### Search {i}: {q}\n{result}")
     return "\n\n".join(combined)
+
+
+# ── LangChain @tool 封装（供 Researcher ReAct 子 Agent 自主调用）──────────────
+from langchain_core.tools import tool
+
+
+@tool
+def web_search_tool(query: str) -> str:
+    """Search the web for current information on a single topic or question."""
+    return web_search(query)
+
+
+@tool
+def multi_search_tool(questions: str) -> str:
+    """Search multiple research questions at once. Pass comma-separated questions."""
+    qs = [q.strip() for q in questions.split(",") if q.strip()]
+    if not qs:
+        return "No questions provided."
+    return multi_search(qs)
+
+
+RESEARCHER_TOOLS = [web_search_tool, multi_search_tool]

@@ -1,6 +1,8 @@
 langchain>=1.0
+langchain-classic>=1.0
 langchain-community>=0.3
 langchain-core>=0.3
+langchain-ollama>=0.2
 langgraph>=0.2
 fastapi>=0.115
 uvicorn[standard]>=0.30

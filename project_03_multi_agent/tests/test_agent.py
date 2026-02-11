@@ -1,4 +1,4 @@
-# tests/test_agent.py — project_03_multi_agent
+# tests/test_agent.py — project_03_multi_agent (Supervisor + ReAct v3)
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -7,55 +7,35 @@ import json
 import pytest
 
 
-def test_planner_node_passthrough():
-    """Planner should populate state['plan'] with required keys."""
-    from unittest.mock import MagicMock, patch
-    from agent import node_planner
+def test_parse_json_from_llm_output():
+    """_parse_json should extract JSON embedded in text."""
+    from agent import _parse_json
 
-    mock_result = MagicMock()
-    mock_result.content = json.dumps({
-        "goal": "test goal",
-        "research_questions": ["q1"],
-        "content_sections": ["Overview"],
-        "tone": "professional",
-        "target_audience": "CTOs",
-    })
+    raw = 'Here is the plan:\n{"goal": "test", "research_questions": ["q1"]}'
+    plan = _parse_json(raw, {})
+    assert plan["goal"] == "test"
+    assert plan["research_questions"] == ["q1"]
+
+
+def test_rule_based_next_starts_with_planner():
+    """Empty state should route to planner first."""
+    from agent import _rule_based_next
+
+    state = {"plan": {}, "research": "", "content": "", "critique": {}, "last_agent": ""}
+    assert _rule_based_next(state) == "planner"
+
+
+def test_rule_based_next_after_plan():
+    """With plan but no research → researcher."""
+    from agent import _rule_based_next
 
     state = {
-        "task": "AI market analysis",
-        "scenario": "market_research",
-        "plan": {},
-        "search_results": "",
+        "plan": {"goal": "x"},
         "research": "",
         "content": "",
-        "critique": {},
-        "summary": "",
-        "revision_count": 0,
-        "agent_log": [],
-        "final_output": "",
-        "total_latency_ms": 0,
+        "last_agent": "",
     }
-
-    with patch("agent._llm") as mock_llm:
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = mock_result
-        mock_llm.return_value.__or__ = lambda self, other: mock_chain
-        # Patch the chain directly
-        with patch("agent.PLANNER_PROMPT.__or__", return_value=mock_chain):
-            with patch("agent.PLANNER_PROMPT.__ror__", return_value=mock_chain):
-                pass  # just test JSON parsing logic below
-
-    # Test JSON parsing directly
-    content = json.dumps({
-        "goal": "test",
-        "research_questions": ["q1"],
-        "content_sections": ["s1"],
-        "tone": "professional",
-        "target_audience": "devs",
-    })
-    plan = json.loads(content)
-    assert "goal" in plan
-    assert isinstance(plan["research_questions"], list)
+    assert _rule_based_next(state) == "researcher"
 
 
 def test_critic_routing_pass():
@@ -71,9 +51,8 @@ def test_critic_routing_pass():
 
 
 def test_critic_routing_revise():
-    """Score < CRITIC_PASS_SCORE with 0 revisions should route to writer."""
+    """Score < CRITIC_PASS_SCORE with room to revise should route to writer."""
     from agent import _route_after_critic
-    from config import MAX_REVISION_LOOPS
 
     state = {
         "critique": {"overall_score": 4, "verdict": "revise"},
@@ -94,9 +73,41 @@ def test_critic_routing_max_revisions():
     assert _route_after_critic(state) == "summarizer"
 
 
+def test_validate_next_blocks_writer_without_research():
+    """Supervisor cannot skip to writer before research exists."""
+    from agent import _validate_next
+
+    state = {"plan": {"goal": "x"}, "research": "", "content": ""}
+    assert _validate_next(state, "writer") == "researcher"
+
+
 def test_multi_search_no_crash():
     """multi_search should return a string (even if search fails)."""
     from tools.search_tool import multi_search
     result = multi_search(["python programming"])
     assert isinstance(result, str)
     assert len(result) > 0
+
+
+def test_researcher_tools_registered():
+    """Researcher ReAct tools should be importable LangChain tools."""
+    from tools.search_tool import RESEARCHER_TOOLS
+    names = {t.name for t in RESEARCHER_TOOLS}
+    assert "web_search_tool" in names
+    assert "multi_search_tool" in names
+
+
+def test_build_graph_compiles():
+    """Supervisor graph should compile without error."""
+    from agent import build_graph
+    g = build_graph()
+    assert g is not None
+
+
+def test_sub_agents_use_create_agent():
+    """Sub-agents should be built with langchain.agents.create_agent (no deprecated API)."""
+    from agent import reset_agents, _get_sub_agent
+    reset_agents()
+    agent = _get_sub_agent("planner")
+    assert agent is not None
+    assert type(agent).__name__ == "CompiledStateGraph"

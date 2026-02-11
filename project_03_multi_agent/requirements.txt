@@ -1,5 +1,5 @@
 # project_03_multi_agent — Multi-Agent Collaboration System
-langchain>=0.3.0
+langchain>=1.0.0
 langchain-core>=0.3.0
 langchain-community>=0.3.0
 langgraph>=0.2.0
