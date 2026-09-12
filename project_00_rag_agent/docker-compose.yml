@@ -58,6 +58,8 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # local=本机 Docker 联调；测试/生产请改为 test/prod，并换强 JWT_SECRET
+      APP_ENV: local
       OLLAMA_BASE_URL: http://ollama:11434
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://rag:rag@postgres:5432/rag_checkpoint

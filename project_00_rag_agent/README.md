@@ -23,8 +23,9 @@ cd project_00_rag_agent
 # 1. 安装依赖（必须，含 chromadb / rank-bm25）
 pip install -r requirements.txt
 
-# 2. 配置环境
-cp .env.example .env
+# 2. 配置本地环境（推荐）
+cp .env.local.example .env.local
+# 或兼容旧方式：cp .env.example .env
 
 # 3. 确保 Ollama 在跑并已拉模型
 ollama pull qwen2.5:1.5b
@@ -41,10 +42,26 @@ streamlit run app_ui.py --server.port 8501
 - API 文档：http://localhost:8000/docs
 - Streamlit UI：http://localhost:8501
 - 默认账号：`admin` / `admin123`
+- 确认环境：`curl http://localhost:8000/health` → 应看到 `"app_env":"local"`
+
+## Environments (local / test / prod)
+
+用 `APP_ENV` 区分环境，**不要**在业务代码里根据 URL 写 if。
+
+| 环境 | 配置文件 | 启动方式 |
+|------|----------|----------|
+| 本地 `local` | `.env.local`（从 `.env.local.example` 复制） | `export APP_ENV=local`（默认） |
+| 测试 `test` | `.env.test`（从 `.env.test.example` 复制） | `export APP_ENV=test` |
+| 生产 `prod` | `.env.prod`（从 `.env.prod.example` 复制，**勿提交 Git**） | `export APP_ENV=prod` |
+
+加载优先级：进程环境变量 > `.env.{APP_ENV}` > `.env`  
+生产护栏：`APP_ENV=prod` 时弱 `JWT_SECRET`（默认值或长度 &lt; 32）会导致**启动失败**。
+
+Java 侧应对齐各环境的 `API_BASE_URL`（测试打测试域名，生产打生产域名）。
 
 **常见问题：**
 - `Could not import chromadb` → `pip install -r requirements.txt`
-- Ingest 很慢 → `.env` 里设 `KG_EXTRACTION_MODE=rule`（默认已是 rule）
+- Ingest 很慢 → `.env.local` 里设 `KG_EXTRACTION_MODE=rule`（默认已是 rule）
 - Redis 连接失败 → 可忽略，自动降级内存缓存/限流
 
 ## Docker (Full Stack)

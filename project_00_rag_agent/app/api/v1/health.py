@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.api.deps import TokenPayload, require_permission
+from app.core.config import settings
 from app.gateway.auth import authenticate_user, create_access_token
 from app.gateway.request_context import get_request_id
 from app.infrastructure.observability.metrics import snapshot
@@ -26,7 +27,11 @@ async def login(req: TokenRequest):
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "request_id": get_request_id()}
+    return {
+        "status": "ok",
+        "app_env": settings.app_env,
+        "request_id": get_request_id(),
+    }
 
 
 @router.get("/ready")

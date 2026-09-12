@@ -10,6 +10,7 @@ metadata:
   name: rag-agent-config
   namespace: rag-agent
 data:
+  APP_ENV: "local"
   LLM_PROVIDER: "ollama"
   EMBEDDING_PROVIDER: "ollama"
   # Docker Desktop / macOS：Pod 访问宿主机上的 Ollama

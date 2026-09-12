@@ -6,11 +6,18 @@ cd "$(dirname "$0")/.."
 echo "==> 1. 安装依赖"
 pip install -r requirements.txt -q
 
-echo "==> 2. 配置 .env"
-if [[ ! -f .env ]]; then
-  cp .env.example .env
-  echo "    已创建 .env（KG_EXTRACTION_MODE=rule，本地更快）"
+echo "==> 2. 配置本地环境 (APP_ENV=local)"
+export APP_ENV="${APP_ENV:-local}"
+if [[ ! -f .env.local && ! -f .env ]]; then
+  if [[ -f .env.local.example ]]; then
+    cp .env.local.example .env.local
+    echo "    已创建 .env.local（来自 .env.local.example）"
+  else
+    cp .env.example .env
+    echo "    已创建 .env（来自 .env.example）"
+  fi
 fi
+echo "    APP_ENV=${APP_ENV}"
 
 echo "==> 3. 检查 Ollama"
 if ! curl -sf http://localhost:11434/api/tags >/dev/null; then

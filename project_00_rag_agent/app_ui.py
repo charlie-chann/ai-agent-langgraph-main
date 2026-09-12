@@ -171,7 +171,11 @@ with st.sidebar:
                 st.error(str(e))
 
 st.markdown("# 🏭 Production RAG Agent")
-st.caption(f"Role: **{st.session_state.role}** · Retrieval: **{os.environ.get('RETRIEVAL_MODE')}**")
+st.caption(
+    f"Env: **{os.getenv('APP_ENV', 'local')}** · "
+    f"Role: **{st.session_state.role}** · "
+    f"Retrieval: **{os.environ.get('RETRIEVAL_MODE')}**"
+)
 
 if not st.session_state.token:
     st.warning("请先在侧边栏登录（默认 admin / admin123），并确保 API 服务已启动。")
