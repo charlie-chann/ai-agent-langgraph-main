@@ -25,7 +25,7 @@ from app.core.exceptions import TimeoutError as RAGTimeoutError
 
 T = TypeVar("T")
 
-
+# Callable[[], T]：无参可调用对象，返回类型为 T
 def run_with_timeout(fn: Callable[[], T], timeout: float, *, label: str = "operation") -> T:
     """
     在子线程中执行无参 Callable，限时等待结果。
