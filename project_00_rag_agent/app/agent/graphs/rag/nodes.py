@@ -69,7 +69,7 @@ def node_guard(state: RagState) -> RagState:
         data = json.loads(raw)
         if data.get("blocked"):
             # 拦截：设置 error=blocked，route_after_guard 将直接 END
-            state["answer"] = f"I cannot process this request: {data.get('reason', 'blocked')}"
+            state["answer"] = f"无法处理该请求：{data.get('reason', 'blocked')}"
             state["grade"] = "yes"          # 避免 grade 节点再次触发重试
             state["error"] = "blocked"
             return state

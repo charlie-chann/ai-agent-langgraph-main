@@ -19,16 +19,20 @@ class CancelToken:
     """轻量取消令牌；disconnect 或超时后 set，上游 generator 应检查并退出。"""
 
     def __init__(self) -> None:
+        """初始化未取消状态。"""
         self._cancelled = False
 
     def cancel(self) -> None:
+        """标记为已取消，通知上游停止产出。"""
         self._cancelled = True
 
     @property
     def is_cancelled(self) -> bool:
+        """是否已取消。"""
         return self._cancelled
 
     def check(self) -> None:
+        """若已取消则抛出 CancelledError。"""
         if self._cancelled:
             raise asyncio.CancelledError("stream consumer disconnected")
 

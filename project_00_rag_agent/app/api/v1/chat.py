@@ -30,6 +30,7 @@ async def list_conversations(
     user: TokenPayload = Depends(require_permission("chat")),
     limit: int = 50,
 ):
+    """列出当前用户的会话列表。"""
     return {"conversations": get_conversation_store().list_conversations(user.sub, limit=limit)}
 
 
@@ -38,6 +39,7 @@ async def get_conversation_messages(
     conversation_id: str,
     user: TokenPayload = Depends(require_permission("chat")),
 ):
+    """获取指定会话的历史消息。"""
     try:
         ensure_conversation(user.sub, conversation_id)
     except NotFoundError as exc:
@@ -78,6 +80,7 @@ async def conversation_chat_stream(
     user: TokenPayload = Depends(require_permission("chat")),
     last_event_id_header: Optional[str] = Header(default=None, alias="Last-Event-ID"),
 ):
+    """按 conversation_id 发起 SSE 流式对话。"""
     try:
         return await start_conversation_stream(
             conversation_id=conversation_id,
@@ -142,6 +145,7 @@ async def chat_stream(
     request: Request,
     user: TokenPayload = Depends(require_permission("chat")),
 ):
+    """兼容入口：自动确保会话后转发到流式对话。"""
     conversation_id = ensure_conversation(user.sub, req.conversation_id)
     fake = ConversationChatRequest(
         message=req.message,

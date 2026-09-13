@@ -11,6 +11,7 @@ _graph_cache: dict[str, Any] = {}
 
 
 def normalize_agent_mode(mode: str | None) -> str:
+    """规范化 agent 模式名；空值时回落到默认配置。"""
     return (mode or settings.default_agent_mode).lower()
 
 
@@ -43,4 +44,5 @@ def reset_graph(agent_mode: str | None = None) -> None:
 
 
 def supported_modes() -> list[str]:
+    """返回当前支持的 agent 模式列表。"""
     return ["rag", "react"]

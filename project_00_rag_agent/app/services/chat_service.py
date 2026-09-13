@@ -24,6 +24,7 @@ _ASSISTANT_META_KEYS = (
 
 
 def ensure_conversation(user_sub: str, conversation_id: Optional[str]) -> str:
+    """校验已有会话归属，或为用户新建会话并返回 id。"""
     store = get_conversation_store()
     if conversation_id:
         if not store.get_conversation(conversation_id, user_sub):
@@ -34,11 +35,13 @@ def ensure_conversation(user_sub: str, conversation_id: Optional[str]) -> str:
 
 
 def load_history_from_store(conversation_id: str) -> List[BaseMessage]:
+    """从持久化加载会话历史并转为 LangChain 消息。"""
     raw = get_conversation_store().list_messages(conversation_id)
     return dict_history_to_messages(messages_as_chat_history(raw))
 
 
 def history_loader_for(conversation_id: str) -> Callable[[], List[BaseMessage]]:
+    """返回延迟加载指定会话历史的闭包。"""
     return lambda: load_history_from_store(conversation_id)
 
 
@@ -50,6 +53,7 @@ def persist_assistant_from_meta(
     history_len: int,
     user_message: str,
 ) -> None:
+    """根据流式 meta 持久化助手消息，并在首轮更新标题。"""
     store = get_conversation_store()
     assistant_meta = {k: meta.get(k) for k in _ASSISTANT_META_KEYS if meta.get(k) is not None}
     final_answer = meta.get("answer") or full_answer
@@ -73,6 +77,7 @@ def run_chat(
     use_cache: bool,
     agent_mode: str = "rag",
 ) -> dict:
+    """同步问答编排：缓存命中或调用 ask，并持久化用户/助手消息。"""
     store = get_conversation_store()
     new_request_id()
     inc("requests_total")

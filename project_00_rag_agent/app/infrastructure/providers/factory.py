@@ -25,6 +25,7 @@ ModelRole = Literal["aux", "generate"]
 
 
 def _resolve_model(role: ModelRole, explicit: Optional[str]) -> str:
+    """按 role / 显式名解析实际模型名（含 model routing）。"""
     if explicit:
         return explicit
     if not settings.model_routing_enabled:

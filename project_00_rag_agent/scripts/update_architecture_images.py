@@ -60,6 +60,7 @@ TITLES = [
 
 
 def main() -> None:
+    """将 architecture.md 中的 mermaid 块替换为 PNG 图片引用。"""
     text = MD_PATH.read_text(encoding="utf-8")
     pattern = re.compile(r"```mermaid\n.*?```", re.DOTALL)
     blocks = pattern.findall(text)

@@ -18,6 +18,7 @@ async def ingest(
     files: List[UploadFile] = File(...),
     user: TokenPayload = Depends(require_permission("ingest")),
 ):
+    """接收上传文件，落盘后执行知识库入库并返回统计。"""
     tmp_dir = Path("/tmp/rag_uploads_v2")
     saved = []
     for f in files:

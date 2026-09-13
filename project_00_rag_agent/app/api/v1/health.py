@@ -18,6 +18,7 @@ router = APIRouter(tags=["health"])
 
 @router.post("/auth/token")
 async def login(req: TokenRequest):
+    """用户名密码登录，成功返回 access_token 与角色。"""
     user = authenticate_user(req.username, req.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -27,6 +28,7 @@ async def login(req: TokenRequest):
 
 @router.get("/health")
 def health():
+    """存活探针：返回服务状态与当前 request_id。"""
     return {
         "status": "ok",
         "app_env": settings.app_env,
@@ -36,15 +38,18 @@ def health():
 
 @router.get("/ready")
 def ready():
+    """就绪探针：检查依赖是否可用并返回对应 HTTP 状态。"""
     code, body = get_readiness()
     return JSONResponse(status_code=code, content=body)
 
 
 @router.get("/stats")
 def stats(user: TokenPayload = Depends(require_permission("health"))):
+    """返回 Agent / 运行时统计信息（需 health 权限）。"""
     return get_stats()
 
 
 @router.get("/metrics")
 def metrics(user: TokenPayload = Depends(require_permission("metrics"))):
+    """返回可观测性指标快照（需 metrics 权限）。"""
     return snapshot()

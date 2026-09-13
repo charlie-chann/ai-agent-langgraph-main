@@ -18,6 +18,7 @@ from app.infrastructure.persistence.stream_wal import StreamEvent, get_stream_st
 
 
 def parse_last_event_id(header_value: Optional[str]) -> int:
+    """解析 Last-Event-ID 头为整型 offset；无效时返回 0。"""
     if not header_value:
         return 0
     try:
@@ -27,6 +28,7 @@ def parse_last_event_id(header_value: Optional[str]) -> int:
 
 
 def format_sse(event: StreamEvent, *, extra: Optional[dict] = None) -> str:
+    """将 StreamEvent 格式化为带 id 字段的标准 SSE 文本块。"""
     data = event.to_sse_data()
     if extra and event.event_type == "meta":
         payload = {**event.payload, **extra}

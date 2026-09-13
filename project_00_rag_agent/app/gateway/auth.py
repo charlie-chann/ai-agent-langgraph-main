@@ -119,6 +119,7 @@ def require_permission(permission: str):
     async def _dep(
         creds: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     ) -> TokenPayload:
+        """校验 Bearer Token 与 RBAC 权限，通过则返回 TokenPayload。"""
         if creds is None or not creds.credentials:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
         user = decode_token(creds.credentials)

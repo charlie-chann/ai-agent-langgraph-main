@@ -68,6 +68,7 @@ async def start_conversation_stream(
     use_wal = settings.stream_resume_enabled
 
     async def _gen() -> AsyncGenerator[str, None]:
+        """生成会话 SSE 事件：WAL 续推或直连 ask_stream_async。"""
         full_answer = ""
         meta: dict = {"stream_id": stream_id, "conversation_id": conversation_id}
         persisted = False
@@ -185,6 +186,7 @@ async def resume_stream(
     cancel = CancelToken()
 
     async def _gen() -> AsyncGenerator[str, None]:
+        """从 WAL 指定 offset 续推 SSE 事件。"""
         async for chunk in consume_wal_sse(
             stream_id,
             after_offset=offset,

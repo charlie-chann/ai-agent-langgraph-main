@@ -8,6 +8,7 @@ from app.knowledge.retriever import retrieve_with_kg
 
 
 def _format_docs(docs) -> str:
+    """将检索到的文档格式化为带序号与来源的文本片段。"""
     if not docs:
         return "No documents found."
     lines = []
@@ -20,16 +21,16 @@ def _format_docs(docs) -> str:
 
 @tool(parse_docstring=True)
 def search_knowledge_base(query: str, user_roles: str = "viewer,public") -> str:
-    """Search the internal knowledge base for documents relevant to a question.
+    """在内部知识库中检索与问题相关的文档。
 
-    Use when the user asks about company policies, products, or uploaded documents.
+    当用户询问公司政策、产品或已上传文档时使用。
 
     Args:
-        query: Natural-language search query.
-        user_roles: Comma-separated ACL roles (e.g. viewer,public or admin,public).
+        query: 自然语言检索查询。
+        user_roles: 逗号分隔的 ACL 角色（如 viewer,public 或 admin,public）。
 
     Returns:
-        Ranked document snippets and optional knowledge-graph context.
+        排序后的文档片段及可选的知识图谱上下文。
     """
     roles = [r.strip() for r in user_roles.split(",") if r.strip()]
     docs, kg_context = retrieve_with_kg(query, user_roles=roles or None)

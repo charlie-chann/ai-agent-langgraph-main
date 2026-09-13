@@ -43,6 +43,7 @@ NAMES = [
 
 
 def extract_mermaid_blocks(text: str) -> list[str]:
+    """从 Markdown 文本中提取所有 mermaid 代码块内容。"""
     pattern = re.compile(r"```mermaid\n(.*?)```", re.DOTALL)
     return [m.group(1).strip() for m in pattern.finditer(text)]
 
@@ -87,6 +88,7 @@ def render_mmdc(mmd_path: Path, out_png: Path) -> bool:
 
 
 def main() -> int:
+    """提取 architecture.md 中的 Mermaid 图并渲染为 PNG。"""
     text = MD_PATH.read_text(encoding="utf-8")
     blocks = extract_mermaid_blocks(text)
     if not blocks:

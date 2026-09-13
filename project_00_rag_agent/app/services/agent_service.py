@@ -104,6 +104,7 @@ def _resolve_history(
     history: Optional[List[BaseMessage]],
     history_loader: Optional[Callable[[], List[BaseMessage]]],
 ) -> List[BaseMessage]:
+    """解析聊天历史：优先显式 history，否则调用 loader。"""
     if history is not None:
         return history
     if history_loader is not None:
@@ -118,6 +119,7 @@ def _result_from_state(
     effective_thread: str,
     cached: bool = False,
 ) -> dict:
+    """将 RAG 图状态整理为 API 统一结果字典。"""
     interrupted = state.get("hitl_required") and not state.get("hitl_approved")
     return {
         "answer": state.get("answer", ""),
@@ -145,6 +147,7 @@ def _invoke_rag_graph(
     conversation_id: Optional[str],
     hitl_approved: bool,
 ) -> tuple[RagState, str]:
+    """同步调用 RAG 图并返回最终状态与有效 thread_id。"""
     effective_thread = thread_id or conversation_id or get_request_id()
     config = {"configurable": {"thread_id": effective_thread}}
     state = get_graph("rag").invoke(
@@ -155,6 +158,7 @@ def _invoke_rag_graph(
 
 
 def _extract_ai_answer(messages: list) -> str:
+    """从消息列表末尾提取最近一条 AI 回答文本。"""
     for msg in reversed(messages):
         if isinstance(msg, AIMessage):
             content = msg.content
@@ -170,6 +174,7 @@ def _invoke_react_graph(
     thread_id: Optional[str],
     conversation_id: Optional[str],
 ) -> tuple[dict, str]:
+    """同步调用 ReAct 图并整理为统一结果字典。"""
     effective_thread = thread_id or conversation_id or get_request_id()
     config = {"configurable": {"thread_id": effective_thread}}
     messages = list(history) + [HumanMessage(content=question)]
@@ -192,11 +197,13 @@ def _invoke_react_graph(
 
 
 def _maybe_cache_result(ck: str, result: dict, state: RagState, *, use_cache: bool) -> None:
+    """在无 HITL/错误时将结果写入缓存。"""
     if use_cache and not result.get("hitl_pending") and not state.get("error"):
         cache_set(ck, result)
 
 
 def _meta_payload(result: dict) -> dict:
+    """从结果中抽取流式 __META__ 载荷字段。"""
     keys = (
         "answer",
         "sources",
@@ -224,6 +231,7 @@ def _meta_payload(result: dict) -> dict:
 
 
 def _iter_answer_chunks(text: str, chunk_size: int) -> Generator[str, None, None]:
+    """按固定字符数切分答案文本，供流式输出。"""
     if not text:
         return
     if chunk_size <= 0:
@@ -548,11 +556,13 @@ _active_stream_tasks: dict[str, asyncio.Task] = {}
 
 
 def register_stream_task(stream_id: str, task: asyncio.Task) -> None:
+    """注册后台流式任务，完成后自动从 registry 移除。"""
     _active_stream_tasks[stream_id] = task
     task.add_done_callback(lambda _t: _active_stream_tasks.pop(stream_id, None))
 
 
 def get_stream_task(stream_id: str) -> Optional[asyncio.Task]:
+    """按 stream_id 查询进程内后台流式任务。"""
     return _active_stream_tasks.get(stream_id)
 
 
@@ -655,6 +665,7 @@ def ask_stream(
     import asyncio
 
     async def _collect():
+        """桥接 ask_stream_async，供同步 ask_stream 逐项取出。"""
         async for item in ask_stream_async(
             question,
             chat_history,

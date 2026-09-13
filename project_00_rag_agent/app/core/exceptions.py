@@ -28,6 +28,7 @@ class AgentError(Exception):
     status_code: int = 500
 
     def __init__(self, message: str, *, detail: str | None = None):
+        """构造异常：写入 message 与可选 detail。"""
         super().__init__(message)
         self.message = message
         self.detail = detail

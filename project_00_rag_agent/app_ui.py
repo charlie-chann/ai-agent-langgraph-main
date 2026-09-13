@@ -42,10 +42,12 @@ for key, default in [
 
 
 def _api_base() -> str:
+    """返回 FastAPI 后端基础 URL（来自环境变量或本地默认值）。"""
     return os.getenv("API_BASE_URL", "http://localhost:8000")
 
 
 def _login(username: str, password: str) -> bool:
+    """调用 /auth/token 登录，成功则写入 session 中的 token 与 role。"""
     try:
         r = httpx.post(f"{_api_base()}/auth/token", json={"username": username, "password": password}, timeout=10)
         if r.status_code == 200:
@@ -59,10 +61,12 @@ def _login(username: str, password: str) -> bool:
 
 
 def _auth_headers() -> dict:
+    """构造带 Bearer Token 的请求头。"""
     return {"Authorization": f"Bearer {st.session_state.token}"}
 
 
 def _ensure_conversation() -> str:
+    """确保已有会话；若无则创建并回写 conversation_id / thread_id。"""
     if st.session_state.conversation_id:
         return st.session_state.conversation_id
     r = httpx.post(
@@ -79,6 +83,7 @@ def _ensure_conversation() -> str:
 
 
 def _load_messages_from_api(conversation_id: str) -> None:
+    """从服务端拉取会话消息并同步到 Streamlit session_state。"""
     r = httpx.get(
         f"{_api_base()}/conversations/{conversation_id}/messages",
         headers=_auth_headers(),
@@ -93,6 +98,7 @@ def _load_messages_from_api(conversation_id: str) -> None:
 
 
 def _chat(message: str) -> dict:
+    """向当前会话发送一条消息并返回 API JSON 响应。"""
     cid = _ensure_conversation()
     r = httpx.post(
         f"{_api_base()}/conversations/{cid}/chat",
@@ -105,6 +111,7 @@ def _chat(message: str) -> dict:
 
 
 def _ingest(files) -> dict:
+    """上传文件到 /ingest 接口并返回入库结果。"""
     headers = {"Authorization": f"Bearer {st.session_state.token}"}
     multipart = [("files", (f.name, f.getvalue(), f.type or "application/octet-stream")) for f in files]
     r = httpx.post(f"{_api_base()}/ingest", files=multipart, headers=headers, timeout=300)

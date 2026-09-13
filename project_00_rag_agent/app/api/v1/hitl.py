@@ -15,4 +15,5 @@ async def hitl_resume(
     req: HITLResumeRequest,
     user: TokenPayload = Depends(require_permission("hitl_approve")),
 ):
+    """管理员审批后恢复被 HITL 挂起的线程。"""
     return resume_hitl_conversation(req.thread_id, approved=req.approved, user_sub=user.sub)

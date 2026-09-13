@@ -31,24 +31,35 @@ _store_lock = Lock()
 
 
 def _utc_now() -> str:
+    """返回当前 UTC 时间的 ISO8601 字符串。"""
     return datetime.now(timezone.utc).isoformat()
 
 
 class ConversationStore(ABC):
   @abstractmethod
-  def setup(self) -> None: ...
+  def setup(self) -> None:
+    """初始化会话与消息表结构。"""
+    ...
 
   @abstractmethod
-  def create_conversation(self, user_id: str, title: Optional[str] = None) -> dict: ...
+  def create_conversation(self, user_id: str, title: Optional[str] = None) -> dict:
+    """创建新会话并返回会话信息。"""
+    ...
 
   @abstractmethod
-  def get_conversation(self, conversation_id: str, user_id: str) -> Optional[dict]: ...
+  def get_conversation(self, conversation_id: str, user_id: str) -> Optional[dict]:
+    """按用户校验并获取单个会话；不存在则返回 None。"""
+    ...
 
   @abstractmethod
-  def list_conversations(self, user_id: str, *, limit: int = 50) -> List[dict]: ...
+  def list_conversations(self, user_id: str, *, limit: int = 50) -> List[dict]:
+    """列出用户的会话，按更新时间倒序。"""
+    ...
 
   @abstractmethod
-  def list_messages(self, conversation_id: str) -> List[dict]: ...
+  def list_messages(self, conversation_id: str) -> List[dict]:
+    """按时间正序列出会话内全部消息。"""
+    ...
 
   @abstractmethod
   def append_message(
@@ -58,17 +69,24 @@ class ConversationStore(ABC):
       content: str,
       *,
       metadata: Optional[dict] = None,
-  ) -> dict: ...
+  ) -> dict:
+    """追加一条消息并刷新会话更新时间。"""
+    ...
 
   @abstractmethod
-  def touch_conversation(self, conversation_id: str, *, title: Optional[str] = None) -> None: ...
+  def touch_conversation(self, conversation_id: str, *, title: Optional[str] = None) -> None:
+    """更新会话时间戳；可选同步标题。"""
+    ...
 
   @abstractmethod
-  def backend_name(self) -> str: ...
+  def backend_name(self) -> str:
+    """返回当前存储后端名称（postgres / sqlite）。"""
+    ...
 
 
 class PostgresConversationStore(ConversationStore):
   def __init__(self, database_url: str):
+    """初始化 PostgreSQL 会话存储。"""
     import psycopg
 
     self._database_url = database_url
@@ -76,10 +94,12 @@ class PostgresConversationStore(ConversationStore):
 
   @contextmanager
   def _conn(self):
+    """获取并自动关闭 PostgreSQL 连接。"""
     with self._psycopg.connect(self._database_url) as conn:
       yield conn
 
   def setup(self) -> None:
+    """创建 PostgreSQL 会话/消息表与索引。"""
     ddl = """
     CREATE TABLE IF NOT EXISTS conversations (
         id UUID PRIMARY KEY,
@@ -105,6 +125,7 @@ class PostgresConversationStore(ConversationStore):
     logger.info("Conversation store: PostgreSQL tables ready")
 
   def create_conversation(self, user_id: str, title: Optional[str] = None) -> dict:
+    """在 PostgreSQL 中创建新会话。"""
     conv_id = str(uuid.uuid4())
     now = _utc_now()
     with self._conn() as conn:
@@ -125,6 +146,7 @@ class PostgresConversationStore(ConversationStore):
     }
 
   def get_conversation(self, conversation_id: str, user_id: str) -> Optional[dict]:
+    """从 PostgreSQL 按用户读取会话。"""
     with self._conn() as conn:
       row = conn.execute(
           """
@@ -145,6 +167,7 @@ class PostgresConversationStore(ConversationStore):
     }
 
   def list_conversations(self, user_id: str, *, limit: int = 50) -> List[dict]:
+    """列出 PostgreSQL 中该用户的会话及消息数。"""
     with self._conn() as conn:
       rows = conn.execute(
           """
@@ -171,6 +194,7 @@ class PostgresConversationStore(ConversationStore):
     return out
 
   def list_messages(self, conversation_id: str) -> List[dict]:
+    """从 PostgreSQL 按时间正序读取会话消息。"""
     with self._conn() as conn:
       rows = conn.execute(
           """
@@ -199,6 +223,7 @@ class PostgresConversationStore(ConversationStore):
       *,
       metadata: Optional[dict] = None,
   ) -> dict:
+    """向 PostgreSQL 追加消息并更新会话时间。"""
     meta = metadata or {}
     now = _utc_now()
     with self._conn() as conn:
@@ -223,6 +248,7 @@ class PostgresConversationStore(ConversationStore):
     }
 
   def touch_conversation(self, conversation_id: str, *, title: Optional[str] = None) -> None:
+    """刷新 PostgreSQL 会话更新时间；可选设置标题。"""
     with self._conn() as conn:
       if title is not None:
         conn.execute(
@@ -237,17 +263,20 @@ class PostgresConversationStore(ConversationStore):
       conn.commit()
 
   def backend_name(self) -> str:
+    """返回后端标识 postgres。"""
     return "postgres"
 
 
 class SqliteConversationStore(ConversationStore):
   def __init__(self, db_path: Path):
+    """初始化 SQLite 会话存储并确保目录存在。"""
     self._db_path = db_path
     self._db_path.parent.mkdir(parents=True, exist_ok=True)
     self._lock = Lock()
 
   @contextmanager
   def _conn(self) -> Iterator[sqlite3.Connection]:
+    """在锁保护下获取 SQLite 连接并自动提交/关闭。"""
     with self._lock:
       conn = sqlite3.connect(self._db_path)
       conn.row_factory = sqlite3.Row
@@ -259,6 +288,7 @@ class SqliteConversationStore(ConversationStore):
         conn.close()
 
   def setup(self) -> None:
+    """创建 SQLite 会话/消息表与索引。"""
     ddl = """
     CREATE TABLE IF NOT EXISTS conversations (
         id TEXT PRIMARY KEY,
@@ -284,6 +314,7 @@ class SqliteConversationStore(ConversationStore):
     logger.info(f"Conversation store: SQLite ready at {self._db_path}")
 
   def create_conversation(self, user_id: str, title: Optional[str] = None) -> dict:
+    """在 SQLite 中创建新会话。"""
     conv_id = str(uuid.uuid4())
     now = _utc_now()
     with self._conn() as conn:
@@ -303,6 +334,7 @@ class SqliteConversationStore(ConversationStore):
     }
 
   def get_conversation(self, conversation_id: str, user_id: str) -> Optional[dict]:
+    """从 SQLite 按用户读取会话。"""
     with self._conn() as conn:
       row = conn.execute(
           "SELECT id, user_id, title, created_at, updated_at FROM conversations WHERE id = ? AND user_id = ?",
@@ -313,6 +345,7 @@ class SqliteConversationStore(ConversationStore):
     return dict(row) | {"conversation_id": row["id"]}
 
   def list_conversations(self, user_id: str, *, limit: int = 50) -> List[dict]:
+    """列出 SQLite 中该用户的会话及消息数。"""
     with self._conn() as conn:
       rows = conn.execute(
           """
@@ -330,6 +363,7 @@ class SqliteConversationStore(ConversationStore):
     return [dict(row) for row in rows]
 
   def list_messages(self, conversation_id: str) -> List[dict]:
+    """从 SQLite 按时间正序读取会话消息。"""
     with self._conn() as conn:
       rows = conn.execute(
           """
@@ -358,6 +392,7 @@ class SqliteConversationStore(ConversationStore):
       *,
       metadata: Optional[dict] = None,
   ) -> dict:
+    """向 SQLite 追加消息并更新会话时间。"""
     meta = metadata or {}
     now = _utc_now()
     with self._conn() as conn:
@@ -375,6 +410,7 @@ class SqliteConversationStore(ConversationStore):
     return {"role": role, "content": content, "metadata": meta, "created_at": now}
 
   def touch_conversation(self, conversation_id: str, *, title: Optional[str] = None) -> None:
+    """刷新 SQLite 会话更新时间；可选设置标题。"""
     with self._conn() as conn:
       if title is not None:
         conn.execute(
@@ -388,10 +424,12 @@ class SqliteConversationStore(ConversationStore):
         )
 
   def backend_name(self) -> str:
+    """返回后端标识 sqlite。"""
     return "sqlite"
 
 
 def _build_store() -> ConversationStore:
+  """按配置构建会话存储（postgres / sqlite / auto 降级）。"""
   backend = settings.conversations_backend
   if backend == "sqlite":
     store = SqliteConversationStore(settings.conversations_sqlite_path)
@@ -416,6 +454,7 @@ def _build_store() -> ConversationStore:
 
 
 def get_conversation_store() -> ConversationStore:
+  """获取会话存储单例（线程安全懒加载）。"""
   global _store
   if _store is None:
     with _store_lock:

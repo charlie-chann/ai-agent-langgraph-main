@@ -17,11 +17,13 @@ from app.services.warmup_service import startup
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """应用生命周期：启动时预热，关闭时交由上下文管理器收尾。"""
     startup()
     yield
 
 
 def create_app() -> FastAPI:
+    """创建 FastAPI 应用：挂中间件、异常处理与 v1 路由。"""
     application = FastAPI(
         title="Production RAG Agent API",
         version="2.1.0",

@@ -32,6 +32,7 @@ _mem_streams: dict[str, dict] = {}
 
 
 def _get_redis():
+    """懒加载 Redis 客户端；不可用时返回 None 并降级内存。"""
     global _redis_client
     if _redis_client is not None:
         return _redis_client
@@ -52,14 +53,17 @@ def _get_redis():
 
 
 def _meta_key(stream_id: str) -> str:
+    """构造流元数据的 Redis key。"""
     return f"rag:stream:{stream_id}:meta"
 
 
 def _events_key(stream_id: str) -> str:
+    """构造流事件列表的 Redis key。"""
     return f"rag:stream:{stream_id}:events"
 
 
 def _ttl() -> int:
+    """返回 WAL 过期秒数。"""
     return settings.stream_wal_ttl_seconds
 
 
@@ -70,6 +74,7 @@ class StreamEvent:
     payload: dict
 
     def to_sse_data(self) -> str:
+        """将事件序列化为 SSE data 字段内容。"""
         if self.event_type == "token":
             return json.dumps({"token": self.payload.get("token", "")}, ensure_ascii=False)
         if self.event_type == "meta":
@@ -80,6 +85,7 @@ class StreamEvent:
 
 
 def _counter_key(stream_id: str) -> str:
+    """构造流事件 offset 计数器的 Redis key。"""
     return f"rag:stream:{stream_id}:counter"
 
 
@@ -148,6 +154,7 @@ def append_event(stream_id: str, event_type: str, payload: dict) -> int:
 
 
 def finalize_stream(stream_id: str, *, status: StreamStatus = "complete", error: Optional[str] = None) -> None:
+    """标记流结束状态（complete / error / cancelled）。"""
     if not settings.stream_resume_enabled:
         return
     r = _get_redis()
@@ -174,6 +181,7 @@ def finalize_stream(stream_id: str, *, status: StreamStatus = "complete", error:
 
 
 def get_stream_status(stream_id: str) -> Optional[dict]:
+    """读取流元数据与状态；过期或不存在返回 None。"""
     if not settings.stream_resume_enabled:
         return None
     r = _get_redis()
